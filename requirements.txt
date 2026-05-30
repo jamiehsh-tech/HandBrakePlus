@@ -1,0 +1,2 @@
+# Optional UI enhancement dependency for native file drag-and-drop on Tk.
+tkinterdnd2>=0.4.2
