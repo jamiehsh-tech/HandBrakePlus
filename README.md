@@ -36,6 +36,13 @@ Notes:
 - `config.json` and `session.json` are still written next to the exe at runtime.
 - HandBrakeCLI is not bundled; configure its path in the app after first launch.
 
+## HandBrakeCLI Licensing And Distribution
+- This project is a desktop wrapper for a locally installed HandBrakeCLI.
+- This repository and the generated release folder do not bundle, mirror, or redistribute HandBrakeCLI unless explicitly stated otherwise.
+- Users should install HandBrakeCLI separately from official sources and then configure its path in HandBrakePlus.
+- If you distribute HandBrakeCLI together with this app, you are responsible for complying with HandBrake and any upstream license terms, including GPL obligations where applicable.
+- Keeping this repository public is generally compatible with this setup because the project code here is separate from the HandBrakeCLI binary distribution.
+
 ## Build Release Folder
 1. Run `build_release.bat`.
 2. Use the generated folder `release\HandBrakePlus` for distribution.
