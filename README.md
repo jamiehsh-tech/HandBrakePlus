@@ -2,6 +2,10 @@
 
 A small Windows desktop batch encoder for HandBrakeCLI.
 
+HandBrakePlus 是一个基于 HandBrakeCLI 的二次开发工具，面向批量编码场景，提供更方便的批量导入、片段拆分、任务展开和顺序编码体验。
+
+HandBrakePlus is a secondary-development wrapper built on top of HandBrakeCLI for batch encoding workflows. It makes bulk import, clip range splitting, job expansion, and sequential encoding easier to manage.
+
 安装必要文件:
 Set-Location "path\to\HandBrakePlus"
 python.exe -m pip install -r requirements.txt
