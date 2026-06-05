@@ -58,7 +58,7 @@ class HandBrakePlusApp(BaseTk):
         self.selected_source_index: int | None = None
         self.selected_range_index: int | None = None
         self.progress_events: "queue.Queue[JobProgress]" = queue.Queue()
-        self.probe_events: "queue.Queue[tuple[str, int | None, str]]" = queue.Queue()
+        self.probe_events: "queue.Queue[tuple[str, int | None, int | None, int | None, str]]" = queue.Queue()
         self.job_queue: SequentialJobQueue | None = None
 
         self.handbrake_path_var = tk.StringVar(value=self.settings["handbrake_path"])
@@ -205,26 +205,31 @@ class HandBrakePlusApp(BaseTk):
 
         self.range_frame = ttk.LabelFrame(self.left_panel, text="2. Clip ranges")
         self.range_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
-        self.range_frame.columnconfigure(7, weight=1)
+        self.range_frame.columnconfigure(1, weight=1)
         self.range_frame.rowconfigure(2, weight=1)
 
         ttk.Label(self.range_frame, text="Frame range").grid(row=0, column=0, sticky="w", padx=8, pady=6)
         range_inputs_frame = ttk.Frame(self.range_frame)
-        range_inputs_frame.grid(row=0, column=1, columnspan=2, sticky="w", padx=8, pady=6)
+        range_inputs_frame.grid(row=0, column=1, sticky="w", padx=8, pady=6)
         ttk.Entry(range_inputs_frame, textvariable=self.start_frame_var, width=12).pack(side="left")
         ttk.Entry(range_inputs_frame, textvariable=self.end_frame_var, width=12).pack(side="left", padx=(4, 0))
         ttk.Button(range_inputs_frame, text="Clear", command=self._clear_range_inputs).pack(side="left", padx=(8, 0))
-        ttk.Button(self.range_frame, text="Sort", command=self._sort_ranges).grid(row=0, column=4, sticky="w", padx=8, pady=6)
-        ttk.Button(self.range_frame, text="Clear source", command=self._clear_ranges).grid(row=0, column=5, sticky="w", padx=8, pady=6)
+        range_top_actions_frame = ttk.Frame(self.range_frame)
+        range_top_actions_frame.grid(row=0, column=2, sticky="w", padx=(8, 8), pady=6)
+        ttk.Button(range_top_actions_frame, text="Full video", command=self._fill_full_video_range).pack(side="left", padx=(0, 8))
+        ttk.Button(range_top_actions_frame, text="Sort", command=self._sort_ranges).pack(side="left", padx=(0, 8))
+        ttk.Button(range_top_actions_frame, text="Clear source", command=self._clear_ranges).pack(side="left")
         ttk.Label(self.range_frame, text="Frame count").grid(row=1, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(self.range_frame, textvariable=self.frame_count_var, width=16, state="readonly").grid(row=1, column=1, sticky="w", padx=8, pady=6)
-        ttk.Button(self.range_frame, text="Add range", command=self._add_range_to_source).grid(row=1, column=2, sticky="w", padx=8, pady=6)
-        ttk.Button(self.range_frame, text="Update selected", command=self._update_selected_range).grid(row=1, column=3, sticky="w", padx=8, pady=6)
-        ttk.Button(self.range_frame, text="Remove selected", command=self._remove_selected_range).grid(row=1, column=4, sticky="w", padx=8, pady=6)
-        ttk.Button(self.range_frame, text="Queue selected", command=self._add_selected_range_to_batch).grid(row=1, column=5, sticky="w", padx=8, pady=6)
+        range_bottom_actions_frame = ttk.Frame(self.range_frame)
+        range_bottom_actions_frame.grid(row=1, column=2, sticky="w", padx=(8, 8), pady=6)
+        ttk.Button(range_bottom_actions_frame, text="Add range", command=self._add_range_to_source).pack(side="left", padx=(0, 8))
+        ttk.Button(range_bottom_actions_frame, text="Update selected", command=self._update_selected_range).pack(side="left", padx=(0, 8))
+        ttk.Button(range_bottom_actions_frame, text="Remove selected", command=self._remove_selected_range).pack(side="left", padx=(0, 8))
+        ttk.Button(range_bottom_actions_frame, text="Queue selected", command=self._add_selected_range_to_batch).pack(side="left")
 
         self.range_listbox = tk.Listbox(self.range_frame, height=16, exportselection=False)
-        self.range_listbox.grid(row=2, column=0, columnspan=8, sticky="nsew", padx=8, pady=(0, 8))
+        self.range_listbox.grid(row=2, column=0, columnspan=3, sticky="nsew", padx=8, pady=(0, 8))
         self.range_listbox.bind("<<ListboxSelect>>", self._on_range_selected)
         self.range_listbox.bind("<Delete>", self._on_delete_range_key)
 
@@ -462,6 +467,36 @@ class HandBrakePlusApp(BaseTk):
                 return preset
         return self.presets[0] if self.presets else None
 
+    def _find_preset_by_keyword(self, keyword: str) -> PresetTemplate | None:
+        keyword_lower = keyword.lower()
+        for preset in self.presets:
+            if keyword_lower in preset.name.lower():
+                return preset
+        return None
+
+    def _recommended_preset_for_source(self, source: VideoSource) -> PresetTemplate | None:
+        fallback = self._find_preset_by_keyword("1080")
+        if fallback is None:
+            fallback = self.presets[0] if self.presets else None
+        width = source.width
+        height = source.height
+        if width is None or height is None:
+            return fallback
+        if width >= 3840 or height >= 2160:
+            return self._find_preset_by_keyword("4k") or fallback
+        if width >= 1920 or height >= 1080:
+            return self._find_preset_by_keyword("1080") or fallback
+        if width >= 1280 or height >= 720:
+            return self._find_preset_by_keyword("720") or fallback
+        return fallback
+
+    def _apply_preset_for_source(self, source: VideoSource) -> None:
+        preset = self._recommended_preset_for_source(source)
+        if preset is None or self.preset_var.get() == preset.name:
+            return
+        self.preset_var.set(preset.name)
+        self._on_preset_changed()
+
     def _configure_scaling(self) -> None:
         scaling = self.winfo_fpixels("1i") / 72.0
         self.tk.call("tk", "scaling", scaling)
@@ -549,6 +584,9 @@ class HandBrakePlusApp(BaseTk):
             first_imported_path = imported_sources[0].path
             self.selected_source_index = existing_index_by_path.get(first_imported_path, 0)
         self.selected_range_index = None
+        source = self._current_source()
+        if source is not None:
+            self._apply_preset_for_source(source)
         self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
@@ -619,6 +657,9 @@ class HandBrakePlusApp(BaseTk):
         if self.selected_source_index is None and self.sources:
             self.selected_source_index = 0
         self.selected_range_index = None
+        source = self._current_source()
+        if source is not None:
+            self._apply_preset_for_source(source)
         self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
@@ -709,6 +750,9 @@ class HandBrakePlusApp(BaseTk):
             return
         self.selected_source_index = selection[0]
         self.selected_range_index = None
+        source = self._current_source()
+        if source is not None:
+            self._apply_preset_for_source(source)
         self._refresh_ranges_view()
 
     def _on_range_selected(self, _event: object) -> None:
@@ -766,6 +810,18 @@ class HandBrakePlusApp(BaseTk):
         self.start_frame_var.set("")
         self.end_frame_var.set("")
         self.frame_count_var.set("")
+
+    def _fill_full_video_range(self) -> None:
+        source = self._current_source()
+        if source is None:
+            messagebox.showwarning("No source", "Please import and select a video first.")
+            return
+        max_frame_index = source.max_frame_index
+        if max_frame_index is None:
+            messagebox.showwarning("Frame scan pending", "Wait for frame scan to finish before filling the full video range.")
+            return
+        self.start_frame_var.set("0")
+        self.end_frame_var.set(str(max_frame_index))
 
     def _current_source(self) -> VideoSource | None:
         if self.selected_source_index is None:
@@ -1056,6 +1112,7 @@ class HandBrakePlusApp(BaseTk):
         source = self._current_source()
         if source is None:
             self.source_info_var.set("No source selected")
+            self._clear_range_inputs()
             return
         max_frame_index = source.max_frame_index
         if source.total_frames is not None and max_frame_index is not None:
@@ -1069,6 +1126,8 @@ class HandBrakePlusApp(BaseTk):
         if self.selected_range_index is not None and self.selected_range_index < len(source.ranges):
             self.range_listbox.selection_set(self.selected_range_index)
             self.range_listbox.see(self.selected_range_index)
+        else:
+            self._clear_range_inputs()
 
     def _refresh_jobs_view(self) -> None:
         for item in self.queue_tree.get_children():
@@ -1090,8 +1149,8 @@ class HandBrakePlusApp(BaseTk):
             pass
         try:
             while True:
-                source_path, total_frames, probe_error = self.probe_events.get_nowait()
-                self._apply_probe_event(source_path, total_frames, probe_error)
+                source_path, total_frames, width, height, probe_error = self.probe_events.get_nowait()
+                self._apply_probe_event(source_path, total_frames, width, height, probe_error)
         except queue.Empty:
             pass
         self.after(150, self._poll_progress_events)
@@ -1114,14 +1173,26 @@ class HandBrakePlusApp(BaseTk):
         if event.status in {"succeeded", "failed", "cancelled", "idle"}:
             self._refresh_jobs_view()
 
-    def _apply_probe_event(self, source_path: str, total_frames: int | None, probe_error: str) -> None:
+    def _apply_probe_event(
+        self,
+        source_path: str,
+        total_frames: int | None,
+        width: int | None,
+        height: int | None,
+        probe_error: str,
+    ) -> None:
         for source in self.sources:
             if str(source.path) != source_path:
                 continue
             source.total_frames = total_frames
+            source.width = width
+            source.height = height
             source.probe_error = probe_error
             if total_frames is not None:
-                self._log(f"Scanned {source.path.name}: total frames {total_frames}")
+                resolution_text = f", resolution {width}x{height}" if width is not None and height is not None else ""
+                self._log(f"Scanned {source.path.name}: total frames {total_frames}{resolution_text}")
+                if self._current_source() is source:
+                    self._apply_preset_for_source(source)
             elif probe_error:
                 self._log(f"Frame scan failed for {source.path.name}: {probe_error}")
             self._refresh_ranges_view()
@@ -1140,10 +1211,10 @@ class HandBrakePlusApp(BaseTk):
 
     def _probe_source_async(self, source_path: Path, runner: HandBrakeRunner) -> None:
         try:
-            total_frames = runner.probe_source(source_path)
-            self.probe_events.put((str(source_path), total_frames, ""))
+            scan_result = runner.probe_source(source_path)
+            self.probe_events.put((str(source_path), scan_result.total_frames, scan_result.width, scan_result.height, ""))
         except Exception as exc:
-            self.probe_events.put((str(source_path), None, str(exc)))
+            self.probe_events.put((str(source_path), None, None, None, str(exc)))
 
     def _load_session(self) -> None:
         payload = self.session_store.load()
@@ -1151,6 +1222,7 @@ class HandBrakePlusApp(BaseTk):
         self.batch_jobs = self.session_store.restore_jobs(payload)
         if self.sources:
             self.selected_source_index = 0
+            self._apply_preset_for_source(self.sources[0])
 
     def _save_session(self) -> None:
         self.session_store.save(self.sources, self.batch_jobs)

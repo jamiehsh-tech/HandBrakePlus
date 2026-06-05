@@ -51,6 +51,8 @@ class SessionStore:
         return {
             "path": str(source.path),
             "total_frames": source.total_frames,
+            "width": source.width,
+            "height": source.height,
             "probe_error": source.probe_error,
             "ranges": [
                 {
@@ -80,6 +82,8 @@ class SessionStore:
             source = VideoSource(
                 path=Path(item["path"]),
                 total_frames=item.get("total_frames"),
+                width=item.get("width"),
+                height=item.get("height"),
                 probe_error=item.get("probe_error", ""),
             )
             for clip_data in item.get("ranges", []):

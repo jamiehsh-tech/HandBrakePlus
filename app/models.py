@@ -41,6 +41,8 @@ class VideoSource:
     path: Path
     ranges: list[ClipRange] = field(default_factory=list)
     total_frames: int | None = None
+    width: int | None = None
+    height: int | None = None
     probe_error: str = ""
 
     @property

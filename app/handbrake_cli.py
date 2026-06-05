@@ -24,6 +24,15 @@ class HandBrakeSettings:
     executable: Path
 
 
+@dataclass(slots=True)
+class SourceScanResult:
+    """Metadata discovered from a HandBrakeCLI scan."""
+
+    total_frames: int
+    width: int | None = None
+    height: int | None = None
+
+
 class StopRequestedError(RuntimeError):
     """Raised when an active HandBrake process is cancelled by the user."""
 
@@ -59,7 +68,7 @@ class HandBrakeRunner:
             if self._current_process is not None and self._current_process.poll() is None:
                 self._current_process.kill()
 
-    def probe_source(self, source_path: Path) -> int:
+    def probe_source(self, source_path: Path) -> SourceScanResult:
         command = [
             str(self.settings.executable),
             "-i",
@@ -82,10 +91,12 @@ class HandBrakeRunner:
         titles = payload.get("TitleList") or []
         if not titles:
             raise RuntimeError("HandBrakeCLI scan did not return any titles")
-        frame_count = self._extract_frame_count(titles[0])
+        title = titles[0]
+        frame_count = self._extract_frame_count(title)
         if not isinstance(frame_count, int) or frame_count <= 0:
             raise RuntimeError("Unable to determine total frames from HandBrakeCLI scan")
-        return frame_count
+        width, height = self._extract_geometry(title)
+        return SourceScanResult(total_frames=frame_count, width=width, height=height)
 
     def run_job(
         self,
@@ -196,3 +207,15 @@ class HandBrakeRunner:
         if computed <= 0:
             return None
         return max(1, math.floor(computed + 0.5))
+
+    def _extract_geometry(self, title: dict) -> tuple[int | None, int | None]:
+        geometry = title.get("Geometry") or {}
+        if not isinstance(geometry, dict):
+            return None, None
+        width = geometry.get("Width")
+        height = geometry.get("Height")
+        if not isinstance(width, int) or width <= 0:
+            width = None
+        if not isinstance(height, int) or height <= 0:
+            height = None
+        return width, height
