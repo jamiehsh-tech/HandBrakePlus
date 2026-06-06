@@ -704,43 +704,6 @@ class HandBrakePlusApp(BaseTk):
             paths = [raw_data]
         self._import_video_paths(paths, expand_directories=True)
 
-    def _toggle_compact_import_mode(self) -> None:
-        self.compact_import_mode = not self.compact_import_mode
-        if self.compact_import_mode:
-            self.update_idletasks()
-            self._pre_compact_geometry = self.geometry()
-            self._pre_compact_window_state = self.state()
-            if self._pre_compact_window_state == "zoomed":
-                self.state("normal")
-            self.config_frame.grid_remove()
-            self.range_frame.grid_remove()
-            self.right_panel.grid_remove()
-            self.main_frame.columnconfigure(0, weight=1)
-            self.main_frame.columnconfigure(1, weight=0)
-            self.left_panel.rowconfigure(0, weight=1)
-            self.left_panel.rowconfigure(1, weight=0)
-            self.left_panel.grid_configure(padx=0)
-            self.source_frame.grid_configure(pady=0)
-            self.minsize(*COMPACT_MIN_WINDOW_SIZE)
-            self.geometry(f"{COMPACT_WINDOW_SIZE[0]}x{COMPACT_WINDOW_SIZE[1]}")
-            self.compact_import_button_var.set("Restore view")
-        else:
-            self.config_frame.grid()
-            self.range_frame.grid()
-            self.right_panel.grid()
-            self.main_frame.columnconfigure(0, weight=1)
-            self.main_frame.columnconfigure(1, weight=1)
-            self.left_panel.rowconfigure(0, weight=0)
-            self.left_panel.rowconfigure(1, weight=2)
-            self.left_panel.grid_configure(padx=(0, 8))
-            self.source_frame.grid_configure(pady=(0, 8))
-            self.minsize(*NORMAL_MIN_WINDOW_SIZE)
-            if self._pre_compact_window_state == "zoomed":
-                self.state("zoomed")
-            elif self._pre_compact_geometry:
-                self.geometry(self._pre_compact_geometry)
-            self.compact_import_button_var.set("Compact mode")
-
     def _on_delete_source_key(self, _event: object) -> str:
         self._remove_selected_source()
         return "break"
@@ -891,6 +854,7 @@ class HandBrakePlusApp(BaseTk):
             return
         clip = ClipRange(start_frame=start_frame, end_frame=end_frame, index=len(source.ranges) + 1, frame_count=frame_count)
         source.ranges.append(clip)
+        self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
         self._log(f"Added range for {source.path.name}: {clip.start_frame} - {clip.end_frame}")
@@ -917,7 +881,9 @@ class HandBrakePlusApp(BaseTk):
         clip.start_frame = start_frame
         clip.end_frame = end_frame
         clip.frame_count = frame_count
+        clip.completed = False
         self.selected_range_index = index
+        self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
         self._log(f"Updated range {clip.index} for {source.path.name}: {clip.start_frame} - {clip.end_frame}")
@@ -935,6 +901,7 @@ class HandBrakePlusApp(BaseTk):
         self._reindex_ranges(source)
         if selected_clip is not None:
             self.selected_range_index = source.ranges.index(selected_clip)
+        self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
         self._log(f"Sorted {len(source.ranges)} range(s) for {source.path.name} by start frame.")
@@ -945,6 +912,7 @@ class HandBrakePlusApp(BaseTk):
             return
         source.ranges.clear()
         self.selected_range_index = None
+        self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
         self._log(f"Cleared ranges for {source.path.name}")
@@ -962,6 +930,7 @@ class HandBrakePlusApp(BaseTk):
         removed = source.ranges.pop(index)
         self._reindex_ranges(source)
         self.selected_range_index = None
+        self._refresh_sources_view()
         self._refresh_ranges_view()
         self._save_session()
         self._log(f"Removed range {removed.index} from {source.path.name}")
@@ -1061,6 +1030,7 @@ class HandBrakePlusApp(BaseTk):
                 EncodeJob(
                     source_path=source.path,
                     output_path=output_path,
+                    clip_index=clip.index,
                     preset_name=preset.name,
                     preset_args=list(preset.handbrake_args),
                     start_frame=clip.start_frame,
@@ -1129,7 +1099,10 @@ class HandBrakePlusApp(BaseTk):
     def _refresh_sources_view(self) -> None:
         self.source_listbox.delete(0, tk.END)
         for source in self.sources:
-            self.source_listbox.insert(tk.END, source.path.name)
+            source_label = source.path.name
+            if source.ranges and all(clip.completed for clip in source.ranges):
+                source_label += " [OK]"
+            self.source_listbox.insert(tk.END, source_label)
         if self.selected_source_index is not None and self.selected_source_index < len(self.sources):
             self.source_listbox.selection_set(self.selected_source_index)
             self.source_listbox.see(self.selected_source_index)
@@ -1149,7 +1122,10 @@ class HandBrakePlusApp(BaseTk):
         else:
             self.source_info_var.set("Frame scan pending")
         for clip in source.ranges:
-            self.range_listbox.insert(tk.END, f"{clip.index}: frame {clip.start_frame} - {clip.end_frame} ({clip.duration_frames} frames)")
+            clip_label = f"{clip.index}: frame {clip.start_frame} - {clip.end_frame} ({clip.duration_frames} frames)"
+            if clip.completed:
+                clip_label += " [OK]"
+            self.range_listbox.insert(tk.END, clip_label)
         if self.selected_range_index is not None and self.selected_range_index < len(source.ranges):
             self.range_listbox.selection_set(self.selected_range_index)
             self.range_listbox.see(self.selected_range_index)
@@ -1192,6 +1168,8 @@ class HandBrakePlusApp(BaseTk):
         self.status_var.set(event.status.title())
         if event.total_jobs:
             self.queue_var.set(f"Queue: {event.completed_jobs}/{event.total_jobs}")
+        if event.status == "succeeded":
+            self._mark_job_completed(event)
         if event.status in {"succeeded", "failed"} and self.batch_jobs:
             self.batch_jobs.pop(0)
             self._save_session()
@@ -1199,6 +1177,22 @@ class HandBrakePlusApp(BaseTk):
             self._log(event.message)
         if event.status in {"succeeded", "failed", "cancelled", "idle"}:
             self._refresh_jobs_view()
+
+    def _mark_job_completed(self, event: JobProgress) -> None:
+        job = event.extra.get("job")
+        if not isinstance(job, EncodeJob):
+            return
+        for source in self.sources:
+            if source.path != job.source_path:
+                continue
+            for clip in source.ranges:
+                if clip.index != job.clip_index:
+                    continue
+                clip.completed = True
+                self._refresh_sources_view()
+                if self._current_source() is source:
+                    self._refresh_ranges_view()
+                return
 
     def _apply_probe_event(
         self,

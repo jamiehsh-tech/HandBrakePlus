@@ -72,6 +72,7 @@ class SequentialJobQueue:
                         current_job=job.display_name,
                         completed_jobs=completed_jobs,
                         total_jobs=total_jobs,
+                        extra={"job": job},
                     )
                 )
                 self.runner.run_job(job, progress_callback)
@@ -84,6 +85,7 @@ class SequentialJobQueue:
                         current_job=job.display_name,
                         completed_jobs=completed_jobs,
                         total_jobs=total_jobs,
+                        extra={"job": job},
                     )
                 )
                 return
@@ -95,7 +97,7 @@ class SequentialJobQueue:
                         current_job=job.display_name,
                         completed_jobs=completed_jobs,
                         total_jobs=total_jobs,
-                        extra={"job": job.display_name},
+                        extra={"job": job},
                     )
                 )
                 completed_jobs += 1

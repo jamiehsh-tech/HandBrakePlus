@@ -121,6 +121,7 @@ class HandBrakeRunner:
                         status="running",
                         message="starting",
                         current_job=job.display_name,
+                        extra={"job": job},
                     )
                 )
             assert process.stdout is not None
@@ -134,6 +135,7 @@ class HandBrakeRunner:
                             message=line,
                             percent=percent,
                             current_job=job.display_name,
+                            extra={"job": job},
                         )
                     )
             return_code = process.wait()
@@ -147,6 +149,7 @@ class HandBrakeRunner:
                         status="succeeded",
                         message="completed",
                         current_job=job.display_name,
+                        extra={"job": job},
                     )
                 )
         except Exception:

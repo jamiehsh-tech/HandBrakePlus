@@ -60,6 +60,7 @@ class SessionStore:
                     "end_frame": clip.end_frame,
                     "index": clip.index,
                     "frame_count": clip.frame_count,
+                    "completed": clip.completed,
                 }
                 for clip in source.ranges
             ],
@@ -69,6 +70,7 @@ class SessionStore:
         return {
             "source_path": str(job.source_path),
             "output_path": str(job.output_path),
+            "clip_index": job.clip_index,
             "preset_name": job.preset_name,
             "preset_args": list(job.preset_args),
             "start_frame": job.start_frame,
@@ -93,6 +95,7 @@ class SessionStore:
                         end_frame=clip_data["end_frame"],
                         index=clip_data["index"],
                         frame_count=clip_data.get("frame_count"),
+                        completed=bool(clip_data.get("completed", False)),
                     )
                 )
             sources.append(source)
@@ -105,6 +108,7 @@ class SessionStore:
                 EncodeJob(
                     source_path=Path(item["source_path"]),
                     output_path=Path(item["output_path"]),
+                    clip_index=int(item.get("clip_index", 0)),
                     preset_name=item["preset_name"],
                     preset_args=list(item.get("preset_args", [])),
                     start_frame=item["start_frame"],

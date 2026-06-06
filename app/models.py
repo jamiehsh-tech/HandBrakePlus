@@ -24,6 +24,7 @@ class ClipRange:
     end_frame: int
     index: int
     frame_count: int | None = None
+    completed: bool = False
 
     @property
     def label(self) -> str:
@@ -62,6 +63,7 @@ class EncodeJob:
 
     source_path: Path
     output_path: Path
+    clip_index: int
     preset_name: str
     preset_args: list[str]
     start_frame: int
