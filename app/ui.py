@@ -18,6 +18,7 @@ from .handbrake_cli import HandBrakeRunner, HandBrakeSettings
 from .models import ClipRange, EncodeJob, JobProgress, PresetTemplate, VideoSource
 from .queue_service import SequentialJobQueue
 from .session_store import SessionStore
+from .ui_sections import ProgressSection, QueueSection, RangeSection, SourceSection
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -33,6 +34,11 @@ MIN_FOLDER_IMPORT_SIZE_BYTES = 100 * 1024 * 1024
 NORMAL_MIN_WINDOW_SIZE = (2800, 1280)
 COMPACT_MIN_WINDOW_SIZE = (720, 420)
 COMPACT_WINDOW_SIZE = (980, 620)
+LEFT_ONLY_MIN_WINDOW_SIZE = (1280, 1280)
+LEFT_ONLY_WINDOW_SIZE = (1480, 1280)
+FULL_VIEW_MODE = "full"
+IMPORT_ONLY_VIEW_MODE = "compact_import"
+LEFT_ONLY_VIEW_MODE = "compact_left"
 
 
 class HandBrakePlusApp(BaseTk):
@@ -72,8 +78,8 @@ class HandBrakePlusApp(BaseTk):
         self.queue_var = tk.StringVar(value="Queue: 0 jobs")
         self.current_job_var = tk.StringVar(value="Current job: none")
         self.source_info_var = tk.StringVar(value="No source selected")
-        self.compact_import_mode = False
-        self.compact_import_button_var = tk.StringVar(value="Compact mode")
+        self.view_mode_var = tk.StringVar(value=FULL_VIEW_MODE)
+        self.current_view_mode = FULL_VIEW_MODE
         self._pre_compact_geometry: str | None = None
         self._pre_compact_window_state: str | None = None
         self.drop_hint_var = tk.StringVar(
@@ -142,10 +148,12 @@ class HandBrakePlusApp(BaseTk):
 
     def _build_ui(self) -> None:
         self.columnconfigure(0, weight=1)
-        self.rowconfigure(1, weight=1)
+        self.rowconfigure(2, weight=1)
+
+        self._build_view_menu()
 
         self.config_frame = ttk.LabelFrame(self, text="Config")
-        self.config_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=10)
+        self.config_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
         self.config_frame.columnconfigure(1, weight=1)
         self.config_frame.columnconfigure(4, weight=1)
         self.config_frame.columnconfigure(5, weight=1)
@@ -167,7 +175,7 @@ class HandBrakePlusApp(BaseTk):
         ttk.Label(self.config_frame, textvariable=self.status_var).grid(row=2, column=3, columnspan=3, sticky="w", padx=8, pady=6)
 
         self.main_frame = ttk.Frame(self)
-        self.main_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=0)
+        self.main_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=0)
         self.main_frame.columnconfigure(0, weight=1)
         self.main_frame.columnconfigure(1, weight=1)
         self.main_frame.rowconfigure(0, weight=1)
@@ -178,60 +186,10 @@ class HandBrakePlusApp(BaseTk):
         self.left_panel.rowconfigure(1, weight=2)
         self.left_panel.columnconfigure(0, weight=1)
 
-        self.source_frame = ttk.LabelFrame(self.left_panel, text="1. Import videos")
+        self.source_frame = SourceSection(self.left_panel).build(self)
         self.source_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
-        self.source_frame.columnconfigure(0, weight=1)
-        self.source_frame.rowconfigure(1, weight=1)
-
-        source_button_bar = ttk.Frame(self.source_frame)
-        source_button_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
-        ttk.Button(source_button_bar, textvariable=self.compact_import_button_var, command=self._toggle_compact_import_mode).pack(side="left", padx=(8, 0))
-        ttk.Button(source_button_bar, text="Import list", command=self._import_sources_from_file).pack(side="left", padx=(0, 8))
-        ttk.Button(source_button_bar, text="Export list", command=self._export_sources_to_file).pack(side="left", padx=(0, 8))
-        ttk.Button(source_button_bar, text="Remove selected", command=self._remove_selected_source).pack(side="left", padx=(0, 8))
-        ttk.Button(source_button_bar, text="Add current source to batch", command=self._add_current_source_to_batch).pack(side="left")
-        ttk.Button(source_button_bar, text="Add videos", command=self._add_videos).pack(side="left", padx=(0, 8))
-
-        self.source_listbox = tk.Listbox(self.source_frame, height=8, exportselection=False)
-        self.source_listbox.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        self.source_listbox.bind("<<ListboxSelect>>", self._on_source_selected)
-        self.source_listbox.bind("<Delete>", self._on_delete_source_key)
-        ttk.Label(self.source_frame, textvariable=self.source_info_var).grid(row=2, column=0, sticky="w", padx=8, pady=(0, 8))
-        ttk.Label(self.source_frame, textvariable=self.drop_hint_var).grid(row=3, column=0, sticky="w", padx=8, pady=(0, 8))
-
-        if TkinterDnD is not None and DND_FILES is not None:
-            self.source_listbox.drop_target_register(DND_FILES)
-            self.source_listbox.dnd_bind("<<Drop>>", self._on_files_dropped)
-
-        self.range_frame = ttk.LabelFrame(self.left_panel, text="2. Clip ranges")
+        self.range_frame = RangeSection(self.left_panel).build(self)
         self.range_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
-        self.range_frame.columnconfigure(1, weight=1)
-        self.range_frame.rowconfigure(2, weight=1)
-
-        ttk.Label(self.range_frame, text="Frame range").grid(row=0, column=0, sticky="w", padx=8, pady=6)
-        range_inputs_frame = ttk.Frame(self.range_frame)
-        range_inputs_frame.grid(row=0, column=1, sticky="w", padx=8, pady=6)
-        ttk.Entry(range_inputs_frame, textvariable=self.start_frame_var, width=12).pack(side="left")
-        ttk.Entry(range_inputs_frame, textvariable=self.end_frame_var, width=12).pack(side="left", padx=(4, 0))
-        ttk.Button(range_inputs_frame, text="Clear", command=self._clear_range_inputs).pack(side="left", padx=(8, 0))
-        range_top_actions_frame = ttk.Frame(self.range_frame)
-        range_top_actions_frame.grid(row=0, column=2, sticky="w", padx=(8, 8), pady=6)
-        ttk.Button(range_top_actions_frame, text="Full video", command=self._fill_full_video_range).pack(side="left", padx=(0, 8))
-        ttk.Button(range_top_actions_frame, text="Sort", command=self._sort_ranges).pack(side="left", padx=(0, 8))
-        ttk.Button(range_top_actions_frame, text="Clear source", command=self._clear_ranges).pack(side="left")
-        ttk.Label(self.range_frame, text="Frame count").grid(row=1, column=0, sticky="w", padx=8, pady=6)
-        ttk.Entry(self.range_frame, textvariable=self.frame_count_var, width=16, state="readonly").grid(row=1, column=1, sticky="w", padx=8, pady=6)
-        range_bottom_actions_frame = ttk.Frame(self.range_frame)
-        range_bottom_actions_frame.grid(row=1, column=2, sticky="w", padx=(8, 8), pady=6)
-        ttk.Button(range_bottom_actions_frame, text="Add range", command=self._add_range_to_source).pack(side="left", padx=(0, 8))
-        ttk.Button(range_bottom_actions_frame, text="Update selected", command=self._update_selected_range).pack(side="left", padx=(0, 8))
-        ttk.Button(range_bottom_actions_frame, text="Remove selected", command=self._remove_selected_range).pack(side="left", padx=(0, 8))
-        ttk.Button(range_bottom_actions_frame, text="Queue selected", command=self._add_selected_range_to_batch).pack(side="left")
-
-        self.range_listbox = tk.Listbox(self.range_frame, height=16, exportselection=False)
-        self.range_listbox.grid(row=2, column=0, columnspan=3, sticky="nsew", padx=8, pady=(0, 8))
-        self.range_listbox.bind("<<ListboxSelect>>", self._on_range_selected)
-        self.range_listbox.bind("<Delete>", self._on_delete_range_key)
 
         self.right_panel = ttk.Frame(self.main_frame)
         self.right_panel.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
@@ -240,46 +198,102 @@ class HandBrakePlusApp(BaseTk):
         self.right_panel.rowconfigure(2, weight=1)
         self.right_panel.columnconfigure(0, weight=1)
 
-        queue_frame = ttk.LabelFrame(self.right_panel, text="3. Batch queue")
-        queue_frame.grid(row=0, column=0, sticky="nsew")
-        queue_frame.rowconfigure(1, weight=1)
-        queue_frame.columnconfigure(0, weight=1)
+        self.queue_frame = QueueSection(self.right_panel).build(self)
+        self.queue_frame.grid(row=0, column=0, sticky="nsew")
 
-        queue_button_bar = ttk.Frame(queue_frame)
-        queue_button_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
-        ttk.Button(queue_button_bar, text="Add selected source ranges", command=self._add_current_source_to_batch).pack(side="left", padx=(0, 8))
-        ttk.Button(queue_button_bar, text="Add selected range", command=self._add_selected_range_to_batch).pack(side="left", padx=(0, 8))
-        ttk.Button(queue_button_bar, text="Add all sources", command=self._add_all_sources_to_batch).pack(side="left", padx=(0, 8))
-        ttk.Button(queue_button_bar, text="Delete selected", command=self._remove_selected_jobs).pack(side="left", padx=(0, 8))
-        ttk.Button(queue_button_bar, text="Clear queue", command=self._clear_queue).pack(side="left", padx=(0, 8))
-        ttk.Button(queue_button_bar, text="Start encoding", command=self._start_encoding).pack(side="left", padx=(0, 8))
-        ttk.Button(queue_button_bar, text="Stop", command=self._stop_queue).pack(side="left")
+        self.progress_frame, self.log_frame = ProgressSection(self.right_panel).build(self)
+        self.progress_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
+        self.log_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
 
-        self.queue_tree = ttk.Treeview(queue_frame, columns=("source", "range", "output", "preset"), show="headings", height=13, selectmode="extended")
-        for column, width in (("source", 220), ("range", 120), ("output", 360), ("preset", 180)):
-            self.queue_tree.heading(column, text=column.title())
-            self.queue_tree.column(column, width=width, anchor="w")
-        self.queue_tree.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
-        self.queue_tree.bind("<Delete>", self._on_delete_jobs_key)
+        self._apply_view_mode(self.view_mode_var.get(), restore_geometry=False)
 
-        progress_frame = ttk.LabelFrame(self.right_panel, text="4. Progress")
-        progress_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
-        progress_frame.columnconfigure(0, weight=1)
+    def _build_view_menu(self) -> None:
+        self.view_menu_frame = ttk.Frame(self)
+        self.view_menu_frame.grid(row=0, column=0, sticky="ew", padx=12, pady=(10, 8))
+        self.view_menu_frame.columnconfigure(4, weight=1)
 
-        ttk.Label(progress_frame, textvariable=self.current_job_var).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 4))
-        ttk.Label(progress_frame, textvariable=self.progress_var).grid(row=1, column=0, sticky="w", padx=8, pady=(0, 4))
-        ttk.Label(progress_frame, textvariable=self.queue_var).grid(row=2, column=0, sticky="w", padx=8, pady=(0, 8))
+        ttk.Label(self.view_menu_frame, text="View").grid(row=0, column=0, sticky="w", padx=(0, 10))
+        ttk.Radiobutton(
+            self.view_menu_frame,
+            text="Full mode",
+            value=FULL_VIEW_MODE,
+            variable=self.view_mode_var,
+            command=lambda: self._set_view_mode(FULL_VIEW_MODE),
+        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
+        ttk.Radiobutton(
+            self.view_menu_frame,
+            text="Compact mode",
+            value=IMPORT_ONLY_VIEW_MODE,
+            variable=self.view_mode_var,
+            command=lambda: self._set_view_mode(IMPORT_ONLY_VIEW_MODE),
+        ).grid(row=0, column=2, sticky="w", padx=(0, 10))
+        ttk.Radiobutton(
+            self.view_menu_frame,
+            text="Compact mode 2",
+            value=LEFT_ONLY_VIEW_MODE,
+            variable=self.view_mode_var,
+            command=lambda: self._set_view_mode(LEFT_ONLY_VIEW_MODE),
+        ).grid(row=0, column=3, sticky="w")
 
-        log_frame = ttk.LabelFrame(self.right_panel, text="Logs")
-        log_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
-        log_frame.rowconfigure(0, weight=1)
-        log_frame.columnconfigure(0, weight=1)
+    def _set_view_mode(self, mode: str) -> None:
+        self.view_mode_var.set(mode)
+        self._apply_view_mode(mode)
 
-        self.log_text = tk.Text(log_frame, height=24, wrap="word")
-        self.log_text.grid(row=0, column=0, sticky="nsew", padx=8, pady=8)
-        scrollbar = ttk.Scrollbar(log_frame, orient="vertical", command=self.log_text.yview)
-        scrollbar.grid(row=0, column=1, sticky="ns", pady=8)
-        self.log_text.configure(yscrollcommand=scrollbar.set)
+    def _apply_view_mode(self, mode: str, restore_geometry: bool = True) -> None:
+        if mode not in {FULL_VIEW_MODE, IMPORT_ONLY_VIEW_MODE, LEFT_ONLY_VIEW_MODE}:
+            return
+
+        self.update_idletasks()
+        previous_mode = self.current_view_mode
+        entering_compact = previous_mode == FULL_VIEW_MODE and mode != FULL_VIEW_MODE
+        leaving_compact = previous_mode != FULL_VIEW_MODE and mode == FULL_VIEW_MODE
+
+        if entering_compact:
+            self._pre_compact_geometry = self.geometry()
+            self._pre_compact_window_state = self.state()
+            if self._pre_compact_window_state == "zoomed":
+                self.state("normal")
+        elif mode != FULL_VIEW_MODE and self.state() == "zoomed":
+            self.state("normal")
+
+        self.config_frame.grid()
+        self.range_frame.grid()
+        self.right_panel.grid()
+        self.main_frame.columnconfigure(0, weight=1)
+        self.main_frame.columnconfigure(1, weight=1)
+        self.left_panel.rowconfigure(0, weight=0)
+        self.left_panel.rowconfigure(1, weight=2)
+        self.left_panel.grid_configure(padx=(0, 8))
+        self.source_frame.grid_configure(pady=(0, 8))
+
+        if mode == IMPORT_ONLY_VIEW_MODE:
+            self.config_frame.grid_remove()
+            self.range_frame.grid_remove()
+            self.right_panel.grid_remove()
+            self.main_frame.columnconfigure(1, weight=0)
+            self.left_panel.rowconfigure(0, weight=1)
+            self.left_panel.rowconfigure(1, weight=0)
+            self.left_panel.grid_configure(padx=0)
+            self.source_frame.grid_configure(pady=0)
+            self.minsize(*COMPACT_MIN_WINDOW_SIZE)
+            if restore_geometry:
+                self.geometry(f"{COMPACT_WINDOW_SIZE[0]}x{COMPACT_WINDOW_SIZE[1]}")
+        elif mode == LEFT_ONLY_VIEW_MODE:
+            self.right_panel.grid_remove()
+            self.main_frame.columnconfigure(1, weight=0)
+            self.left_panel.grid_configure(padx=0)
+            self.minsize(*LEFT_ONLY_MIN_WINDOW_SIZE)
+            if restore_geometry:
+                self.geometry(f"{LEFT_ONLY_WINDOW_SIZE[0]}x{LEFT_ONLY_WINDOW_SIZE[1]}")
+        else:
+            self.minsize(*NORMAL_MIN_WINDOW_SIZE)
+            if leaving_compact:
+                if self._pre_compact_window_state == "zoomed":
+                    self.state("zoomed")
+                elif self._pre_compact_geometry:
+                    self.geometry(self._pre_compact_geometry)
+
+        self.current_view_mode = mode
 
     def _browse_handbrake(self) -> None:
         path = filedialog.askopenfilename(title="Select HandBrakeCLI.exe", filetypes=(("Executable", "*.exe"), ("All files", "*.*")))
