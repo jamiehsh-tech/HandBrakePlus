@@ -188,6 +188,7 @@ class HandBrakePlusApp(BaseTk):
 
         self.source_frame = SourceSection(self.left_panel).build(self)
         self.source_frame.grid(row=0, column=0, sticky="nsew", pady=(0, 8))
+        self._register_source_drop_targets()
         self.range_frame = RangeSection(self.left_panel).build(self)
         self.range_frame.grid(row=1, column=0, sticky="nsew", pady=(0, 8))
 
@@ -234,6 +235,18 @@ class HandBrakePlusApp(BaseTk):
             variable=self.view_mode_var,
             command=lambda: self._set_view_mode(LEFT_ONLY_VIEW_MODE),
         ).grid(row=0, column=3, sticky="w")
+
+    def _register_source_drop_targets(self) -> None:
+        if TkinterDnD is None or DND_FILES is None:
+            return
+
+        def register(widget: tk.Misc) -> None:
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>", self._on_files_dropped)
+            for child in widget.winfo_children():
+                register(child)
+
+        register(self.source_frame)
 
     def _set_view_mode(self, mode: str) -> None:
         self.view_mode_var.set(mode)
