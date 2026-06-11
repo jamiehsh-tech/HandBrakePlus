@@ -759,14 +759,14 @@ class HandBrakePlusApp(BaseTk):
         self.frame_count_var.set(str(clip.duration_frames))
 
     def _on_start_frame_changed(self, *_args: object) -> None:
-        start_text = self.start_frame_var.get().strip()
+        start_text = self._coerce_frame_var(self.start_frame_var)
         end_text = self.end_frame_var.get().strip()
         if not start_text or not end_text:
             self._update_frame_count_display()
             return
         try:
-            start_frame = int(start_text)
-            end_frame = int(end_text)
+            start_frame = self._parse_frame_text(start_text)
+            end_frame = self._parse_frame_text(end_text)
         except ValueError:
             self._update_frame_count_display()
             return
@@ -777,6 +777,7 @@ class HandBrakePlusApp(BaseTk):
         self._update_frame_count_display()
 
     def _on_end_frame_changed(self, *_args: object) -> None:
+        self._coerce_frame_var(self.end_frame_var)
         self._update_frame_count_display()
 
     def _update_frame_count_display(self) -> None:
@@ -786,8 +787,8 @@ class HandBrakePlusApp(BaseTk):
             self.frame_count_var.set("")
             return
         try:
-            start_frame = int(start_text)
-            end_frame = int(end_text)
+            start_frame = self._parse_frame_text(start_text)
+            end_frame = self._parse_frame_text(end_text)
         except ValueError:
             self.frame_count_var.set("")
             return
@@ -795,6 +796,27 @@ class HandBrakePlusApp(BaseTk):
             self.frame_count_var.set("")
             return
         self.frame_count_var.set(str(end_frame - start_frame + 1))
+
+    def _normalize_frame_text(self, value: str) -> str:
+        text = value.strip()
+        if not text or "," not in text:
+            return text
+        frame_text, _, _rest = text.partition(",")
+        frame_text = frame_text.strip()
+        try:
+            return str(int(frame_text))
+        except ValueError:
+            return text
+
+    def _coerce_frame_var(self, variable: tk.StringVar) -> str:
+        raw_value = variable.get()
+        normalized_value = self._normalize_frame_text(raw_value)
+        if normalized_value != raw_value:
+            variable.set(normalized_value)
+        return normalized_value.strip()
+
+    def _parse_frame_text(self, value: str) -> int:
+        return int(self._normalize_frame_text(value))
 
     def _clear_range_inputs(self) -> None:
         self.start_frame_var.set("")
@@ -822,8 +844,8 @@ class HandBrakePlusApp(BaseTk):
 
     def _read_range_inputs(self, source: VideoSource) -> tuple[int, int, int]:
         try:
-            start_frame = int(self.start_frame_var.get().strip())
-            end_frame = int(self.end_frame_var.get().strip())
+            start_frame = self._parse_frame_text(self.start_frame_var.get())
+            end_frame = self._parse_frame_text(self.end_frame_var.get())
             frame_count = end_frame - start_frame + 1
         except ValueError as exc:
             raise ValueError("Start/end frame must be integers.") from exc
