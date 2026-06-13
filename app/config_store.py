@@ -118,6 +118,7 @@ DEFAULT_CONFIG = {
     "handbrake_path": DEFAULT_HANDBRAKE_PATH,
     "default_output_dir": "",
     "last_preset": "4K H.265 NVENC 10Mbps VFR",
+    "last_view_mode": "full",
     "presets": DEFAULT_PRESET_ITEMS,
 }
 

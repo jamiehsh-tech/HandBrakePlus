@@ -39,6 +39,7 @@ LEFT_ONLY_WINDOW_SIZE = (1480, 1280)
 FULL_VIEW_MODE = "full"
 IMPORT_ONLY_VIEW_MODE = "compact_import"
 LEFT_ONLY_VIEW_MODE = "compact_left"
+VALID_VIEW_MODES = {FULL_VIEW_MODE, IMPORT_ONLY_VIEW_MODE, LEFT_ONLY_VIEW_MODE}
 
 
 class HandBrakePlusApp(BaseTk):
@@ -70,6 +71,9 @@ class HandBrakePlusApp(BaseTk):
         self.handbrake_path_var = tk.StringVar(value=self.settings["handbrake_path"])
         self.output_dir_var = tk.StringVar(value=self.settings.get("default_output_dir", ""))
         self.preset_var = tk.StringVar(value=self.settings.get("last_preset", self.presets[0].name if self.presets else ""))
+        initial_view_mode = self.settings.get("last_view_mode", FULL_VIEW_MODE)
+        if initial_view_mode not in VALID_VIEW_MODES:
+            initial_view_mode = FULL_VIEW_MODE
         self.start_frame_var = tk.StringVar(value="")
         self.end_frame_var = tk.StringVar(value="")
         self.frame_count_var = tk.StringVar(value="")
@@ -78,7 +82,7 @@ class HandBrakePlusApp(BaseTk):
         self.queue_var = tk.StringVar(value="Queue: 0 jobs")
         self.current_job_var = tk.StringVar(value="Current job: none")
         self.source_info_var = tk.StringVar(value="No source selected")
-        self.view_mode_var = tk.StringVar(value=FULL_VIEW_MODE)
+        self.view_mode_var = tk.StringVar(value=initial_view_mode)
         self.current_view_mode = FULL_VIEW_MODE
         self._pre_compact_geometry: str | None = None
         self._pre_compact_window_state: str | None = None
@@ -216,24 +220,24 @@ class HandBrakePlusApp(BaseTk):
         ttk.Label(self.view_menu_frame, text="View").grid(row=0, column=0, sticky="w", padx=(0, 10))
         ttk.Radiobutton(
             self.view_menu_frame,
-            text="Full mode",
-            value=FULL_VIEW_MODE,
-            variable=self.view_mode_var,
-            command=lambda: self._set_view_mode(FULL_VIEW_MODE),
-        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
-        ttk.Radiobutton(
-            self.view_menu_frame,
             text="Compact mode",
             value=IMPORT_ONLY_VIEW_MODE,
             variable=self.view_mode_var,
             command=lambda: self._set_view_mode(IMPORT_ONLY_VIEW_MODE),
-        ).grid(row=0, column=2, sticky="w", padx=(0, 10))
+        ).grid(row=0, column=1, sticky="w", padx=(0, 10))
         ttk.Radiobutton(
             self.view_menu_frame,
             text="Compact mode 2",
             value=LEFT_ONLY_VIEW_MODE,
             variable=self.view_mode_var,
             command=lambda: self._set_view_mode(LEFT_ONLY_VIEW_MODE),
+        ).grid(row=0, column=2, sticky="w", padx=(0, 10))
+        ttk.Radiobutton(
+            self.view_menu_frame,
+            text="Full mode",
+            value=FULL_VIEW_MODE,
+            variable=self.view_mode_var,
+            command=lambda: self._set_view_mode(FULL_VIEW_MODE),
         ).grid(row=0, column=3, sticky="w")
 
     def _register_source_drop_targets(self) -> None:
@@ -253,7 +257,7 @@ class HandBrakePlusApp(BaseTk):
         self._apply_view_mode(mode)
 
     def _apply_view_mode(self, mode: str, restore_geometry: bool = True) -> None:
-        if mode not in {FULL_VIEW_MODE, IMPORT_ONLY_VIEW_MODE, LEFT_ONLY_VIEW_MODE}:
+        if mode not in VALID_VIEW_MODES:
             return
 
         self.update_idletasks()
@@ -1274,5 +1278,6 @@ class HandBrakePlusApp(BaseTk):
         self.settings["handbrake_path"] = self.handbrake_path_var.get().strip()
         self.settings["default_output_dir"] = self.output_dir_var.get().strip()
         self.settings["last_preset"] = self.preset_var.get().strip()
+        self.settings["last_view_mode"] = self.view_mode_var.get().strip()
         self.config_store.save(self.settings)
         self._save_session()
