@@ -13,10 +13,10 @@ python.exe -m pip install -r requirements.txt
 启动程序,终端执行: python.exe main.py
 
 打包 exe:
-build_exe.bat
+.\build_exe.bat
 
 生成发布目录:
-build_release.bat
+.\build_release.bat
 python -m py_compile app\ui.py; .\build_release.bat
 
 ## Goals
@@ -31,7 +31,7 @@ Use Python 3.10+ and launch `app/main.py`.
 
 ## Build EXE
 1. Open PowerShell or cmd in the HandBrakePlus folder.
-2. Run `build_exe.bat`.
+2. Run `.\build_exe.bat` in PowerShell, or `build_exe.bat` in cmd.
 3. After packaging completes, use `dist\HandBrakePlus.exe`.
 
 Notes:
@@ -48,7 +48,7 @@ Notes:
 - Keeping this repository public is generally compatible with this setup because the project code here is separate from the HandBrakeCLI binary distribution.
 
 ## Build Release Folder
-1. Run `build_release.bat`.
+1. Run `.\build_release.bat` in PowerShell, or `build_release.bat` in cmd.
 2. Use the generated folder `release\HandBrakePlus` for distribution.
 
 The release folder includes:

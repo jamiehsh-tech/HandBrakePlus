@@ -54,7 +54,7 @@ class HandBrakePlusApp(BaseTk):
         self.minsize(*NORMAL_MIN_WINDOW_SIZE)
         self._configure_scaling()
 
-        self.project_root = Path(__file__).resolve().parent.parent
+        self.project_root = self._storage_root()
         self.config_store = ConfigStore(self.project_root)
         self.session_store = SessionStore(self.project_root)
         self.settings = self.config_store.load()
@@ -102,6 +102,11 @@ class HandBrakePlusApp(BaseTk):
     def _resource_root(self) -> Path:
         if getattr(sys, "frozen", False):
             return Path(getattr(sys, "_MEIPASS", Path(sys.executable).resolve().parent))
+        return Path(__file__).resolve().parent.parent
+
+    def _storage_root(self) -> Path:
+        if getattr(sys, "frozen", False):
+            return Path(sys.executable).resolve().parent
         return Path(__file__).resolve().parent.parent
 
     def _apply_app_icon(self) -> None:
