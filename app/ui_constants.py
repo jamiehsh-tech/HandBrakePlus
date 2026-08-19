@@ -9,7 +9,11 @@ import re
 
 VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".wmv", ".ts", ".m4v", ".mka"}
 MIN_FOLDER_IMPORT_SIZE_BYTES = 100 * 1024 * 1024
-NORMAL_MIN_WINDOW_SIZE = (2800, 1280)
+NORMAL_MIN_WINDOW_SIZE = (2700, 1280)
+# Full mode 全屏模式的左右区域宽度比例。数值越大，分到的横向空间越多。
+# 例如 2:3 表示左侧约占 40%，右侧约占 60%；想改变比例时只修改这里。
+FULL_LEFT_PANEL_WEIGHT = 5
+FULL_RIGHT_PANEL_WEIGHT = 4
 COMPACT_MIN_WINDOW_SIZE = (720, 420)
 COMPACT_WINDOW_SIZE = (980, 620)
 LEFT_ONLY_MIN_WINDOW_SIZE = (1280, 1280)

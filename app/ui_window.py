@@ -15,6 +15,8 @@ from .models import PresetTemplate, VideoSource
 from .ui_constants import (
     COMPACT_MIN_WINDOW_SIZE,
     COMPACT_WINDOW_SIZE,
+    FULL_LEFT_PANEL_WEIGHT,
+    FULL_RIGHT_PANEL_WEIGHT,
     FULL_VIEW_MODE,
     IMPORT_ONLY_VIEW_MODE,
     LEFT_ONLY_MIN_WINDOW_SIZE,
@@ -93,11 +95,18 @@ class WindowMixin:
 
         self._build_view_menu()
 
-        self.config_frame = ttk.LabelFrame(self, text="Config")
+        # 用 labelwidget 组合标题和按钮，让 + / − 紧挨 Config 显示。
+        config_title = ttk.Frame(self)
+        ttk.Label(config_title, text="Config").pack(side="left")
+        self.config_details_expanded = True
+        self.config_toggle_button = ttk.Button(config_title, text="−", width=3, command=self._toggle_config_details)
+        self.config_toggle_button.pack(side="left", padx=(6, 0))
+
+        self.config_frame = ttk.LabelFrame(self, labelwidget=config_title)
         self.config_frame.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
+        # 配置区只有输入框列需要随窗口拉伸；Browse 按钮列不设置 weight，保持正常宽度。
+        # 如果将第 4 列也设为 weight=1，Browse 按钮会被拉宽到占用半个配置区。
         self.config_frame.columnconfigure(1, weight=1)
-        self.config_frame.columnconfigure(4, weight=1)
-        self.config_frame.columnconfigure(5, weight=1)
 
         ttk.Label(self.config_frame, text="HandBrakeCLI").grid(row=0, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(self.config_frame, textvariable=self.handbrake_path_var).grid(row=0, column=1, columnspan=3, sticky="ew", padx=8, pady=6)
@@ -118,15 +127,30 @@ class WindowMixin:
         self.preset_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_preset_changed())
         ttk.Button(self.config_frame, text="Edit presets", command=self._open_preset_editor).grid(row=3, column=2, sticky="w", padx=8, pady=6)
         ttk.Label(self.config_frame, textvariable=self.status_var).grid(row=3, column=3, columnspan=3, sticky="w", padx=8, pady=6)
+        # 保存前三行的控件引用。grid_remove 后不能再靠 grid_slaves() 找回它们。
+        # 收起时仅隐藏这三行，Preset 仍可直接选择。
+        self.config_detail_widgets = tuple(
+            widget
+            for row in (0, 1, 2)
+            for widget in self.config_frame.grid_slaves(row=row)
+        )
+        # 默认收起路径设置，让首次打开的界面更简洁；点击 Config 旁边的 + 可展开。
+        self._set_config_details_expanded(False)
 
         self.main_frame = ttk.Frame(self)
         self.main_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=0)
-        self.main_frame.columnconfigure(0, weight=1)
-        self.main_frame.columnconfigure(1, weight=1)
+        # Full mode 全屏模式的左右宽度由这里的 grid 权重决定。
+        # 想调整比例，请修改 ui_constants.py 中的 FULL_LEFT_PANEL_WEIGHT
+        # 和 FULL_RIGHT_PANEL_WEIGHT；数值越大，该列获得的空间越多。
+        # uniform 强制两列遵循该比例，避免左侧子控件的最小宽度覆盖 weight 设置。
+        self.main_frame.columnconfigure(0, weight=FULL_LEFT_PANEL_WEIGHT, uniform="full_panels")
+        self.main_frame.columnconfigure(1, weight=FULL_RIGHT_PANEL_WEIGHT, uniform="full_panels")
         self.main_frame.rowconfigure(0, weight=1)
 
         self.left_panel = ttk.Frame(self.main_frame)
         self.left_panel.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        # 左侧上下区域的高度比例：Import videos 不扩张，Clip ranges 占用剩余高度。
+        # 修改这两个 rowconfigure 的 weight 可以调整左侧上下区域的高度分配。
         self.left_panel.rowconfigure(0, weight=0)
         self.left_panel.rowconfigure(1, weight=2)
         self.left_panel.columnconfigure(0, weight=1)
@@ -192,6 +216,28 @@ class WindowMixin:
             command=lambda: self._set_view_mode(MERGE_VIEW_MODE),
         ).grid(row=0, column=4, sticky="w", padx=(10, 0))
 
+    def _toggle_config_details(self) -> None:
+        """Show or hide the three path-setting rows in the Config area.
+
+        中文说明：仅切换控件可见性，不会清空 HandBrakeCLI、FFmpeg 或输出目录的已有值。
+        """
+        self._set_config_details_expanded(not self.config_details_expanded)
+
+    def _set_config_details_expanded(self, expanded: bool) -> None:
+        """Apply the Config details visibility state.
+
+        中文说明：传入 True 为展开、False 为收起；修改 build_ui 中的默认调用可改变启动状态。
+        """
+        self.config_details_expanded = expanded
+        for widget in self.config_detail_widgets:
+            if self.config_details_expanded:
+                widget.grid()
+            else:
+                widget.grid_remove()
+
+        # 展开显示减号（可收起），收起显示加号（可展开）。
+        self.config_toggle_button.configure(text="−" if self.config_details_expanded else "+")
+
     def _register_source_drop_targets(self) -> None:
         if TkinterDnD is None or DND_FILES is None:
             return
@@ -243,8 +289,10 @@ class WindowMixin:
         self.merge_frame.grid_remove()
         self.range_frame.grid()
         self.right_panel.grid()
-        self.main_frame.columnconfigure(0, weight=1)
-        self.main_frame.columnconfigure(1, weight=1)
+        # 切换 View 时重新设置全屏布局比例，避免 Compact mode 的 weight=0 影响返回 Full mode。
+        # uniform 让比例不受左右面板内部控件的最小宽度影响。
+        self.main_frame.columnconfigure(0, weight=FULL_LEFT_PANEL_WEIGHT, uniform="full_panels")
+        self.main_frame.columnconfigure(1, weight=FULL_RIGHT_PANEL_WEIGHT, uniform="full_panels")
         self.left_panel.rowconfigure(0, weight=0)
         self.left_panel.rowconfigure(1, weight=2)
         self.left_panel.grid_configure(padx=(0, 8))
@@ -254,7 +302,9 @@ class WindowMixin:
             self.config_frame.grid_remove()
             self.range_frame.grid_remove()
             self.right_panel.grid_remove()
-            self.main_frame.columnconfigure(1, weight=0)
+            # Compact mode 只有左栏：清除 Full mode 的 uniform，避免隐藏的右栏留下空白区域。
+            self.main_frame.columnconfigure(0, uniform="")
+            self.main_frame.columnconfigure(1, weight=0, minsize=0, uniform="")
             self.left_panel.rowconfigure(0, weight=1)
             self.left_panel.rowconfigure(1, weight=0)
             self.left_panel.grid_configure(padx=0)
@@ -264,7 +314,9 @@ class WindowMixin:
                 self.geometry(f"{COMPACT_WINDOW_SIZE[0]}x{COMPACT_WINDOW_SIZE[1]}")
         elif mode == LEFT_ONLY_VIEW_MODE:
             self.right_panel.grid_remove()
-            self.main_frame.columnconfigure(1, weight=0)
+            # Compact mode 2 同样仅显示左栏，因此不保留 Full mode 的左右比例占位。
+            self.main_frame.columnconfigure(0, uniform="")
+            self.main_frame.columnconfigure(1, weight=0, minsize=0, uniform="")
             self.left_panel.grid_configure(padx=0)
             self.minsize(*LEFT_ONLY_MIN_WINDOW_SIZE)
             if restore_geometry:
