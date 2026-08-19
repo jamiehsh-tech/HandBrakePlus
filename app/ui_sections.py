@@ -129,12 +129,11 @@ class QueueSection:
 
         button_bar = ttk.Frame(self.frame)
         button_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
-        ttk.Button(button_bar, text="Add selected source ranges", command=controller._add_current_source_to_batch).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Add selected range", command=controller._add_selected_range_to_batch).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Add selected all", command=controller._add_current_source_to_batch).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Add selected one", command=controller._add_selected_range_to_batch).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Add all sources", command=controller._add_all_sources_to_batch).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Delete selected", command=controller._remove_selected_jobs).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Clear queue", command=controller._clear_queue).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Start encoding", command=controller._start_encoding).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Clear", command=controller._clear_queue).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Start", command=controller._start_encoding).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Stop", command=controller._stop_queue).pack(side="left")
 
         controller.queue_tree = ttk.Treeview(self.frame, columns=("source", "range", "output", "preset"), show="headings", height=13, selectmode="extended")
