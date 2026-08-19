@@ -23,6 +23,9 @@ python -m py_compile app\ui.py; .\build_release.bat
 - Import multiple video files
 - Choose a preset template
 - Use the built-in `Audio only - source copy` preset to extract all embedded audio tracks with FFmpeg stream copy (no video re-encoding; outputs `.mka`).
+- Import `.mka` files as audio sources; their editing timeline uses milliseconds and can be exported with the audio-only preset.
+- For `.mka` ranges, paste `HH:MM:SS.mmm` such as `00:00:03.616`; the field converts it to milliseconds automatically.
+- Select `Merge mode` in the View bar to open the standalone merge page. Add or drag video/audio files, reorder them, and concatenate same-extension inputs; the generated output name is `first-file-name-merge.ext`.
 - Add multiple clip ranges per source
 - Expand each range into its own output job
 - Encode jobs sequentially with progress updates
@@ -41,7 +44,10 @@ python -m py_compile app\ui.py; .\build_release.bat
 如果需要将音频转换成 AAC、MP3 等格式，请使用其他支持音频编码的工具或后续增加转码 Preset；当前 Preset 的目标是原音频复制。
 
 ## Run
-Use Python 3.10+ and launch `app/main.py`.
+Use Python 3.10+ and launch the root `main.py`.
+
+## VS Code Run And Debug
+Open the HandBrakePlus folder as the workspace, select the desired Python interpreter, then press `F5` and choose `Python: HandBrakePlus`. The launch configuration runs the root `main.py` with the project root as its working directory, so local `config.json` and `session.json` are resolved correctly. Breakpoints can be placed in `app/ui.py`, `app/handbrake_cli.py`, and other application modules.
 
 ## Build EXE
 1. Open PowerShell or cmd in the HandBrakePlus folder.

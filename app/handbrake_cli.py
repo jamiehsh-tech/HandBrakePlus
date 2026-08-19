@@ -7,6 +7,7 @@ import math
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -16,6 +17,7 @@ from .models import EncodeJob, JobProgress
 
 
 PROGRESS_PATTERN = re.compile(r"(\d+(?:\.\d+)?)\s*%")
+AUDIO_TIMELINE_RATE = 1000.0
 
 
 @dataclass(slots=True)
@@ -33,6 +35,9 @@ class SourceScanResult:
     total_frames: int
     width: int | None = None
     height: int | None = None
+    frame_rate: float | None = None
+    duration_seconds: float | None = None
+    is_audio_only: bool = False
 
 
 class StopRequestedError(RuntimeError):
@@ -97,6 +102,70 @@ class HandBrakeRunner:
             str(job.output_path),
         ]
 
+    def merge_files(self, input_paths: list[Path], output_path: Path) -> None:
+        """Concatenate same-container media files with FFmpeg stream copy."""
+        if len(input_paths) < 2:
+            raise ValueError("At least two files are required for merging.")
+        concat_input = "".join(f"file '{self._escape_concat_path(path)}'\n" for path in input_paths)
+        concat_path: Path | None = None
+        try:
+            # Keep the concat list beside the inputs. On Windows this avoids
+            # mixing a local stdin/fd list with UNC or mapped-drive paths.
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                newline="\n",
+                prefix=".handbrakeplus-",
+                suffix=".ffconcat",
+                dir=str(input_paths[0].resolve().parent),
+                delete=False,
+            ) as concat_file:
+                concat_path = Path(concat_file.name)
+                concat_file.write("ffconcat version 1.0\n")
+                concat_file.write(concat_input)
+
+            command = [
+                str(self._get_ffmpeg_executable()),
+                "-hide_banner",
+                "-y",
+                "-f",
+                "concat",
+                "-safe",
+                "0",
+                "-protocol_whitelist",
+                "file,crypto,data",
+                "-i",
+                str(concat_path),
+                "-map",
+                "0",
+                "-c",
+                "copy",
+                "-loglevel",
+                "error",
+                str(output_path),
+            ]
+            process = subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+            )
+            with self._process_lock:
+                self._current_process = process
+            output, _ = process.communicate()
+            if process.returncode != 0:
+                raise RuntimeError(f"FFmpeg merge failed: {output.strip() or f'exited with code {process.returncode}'}")
+        finally:
+            with self._process_lock:
+                self._current_process = None
+            if concat_path is not None:
+                try:
+                    concat_path.unlink()
+                except OSError:
+                    pass
+
     def request_stop(self) -> None:
         self._stop_requested.set()
         with self._process_lock:
@@ -104,6 +173,8 @@ class HandBrakeRunner:
                 self._current_process.kill()
 
     def probe_source(self, source_path: Path) -> SourceScanResult:
+        if source_path.suffix.lower() == ".mka":
+            return self._probe_audio_source(source_path)
         command = [
             str(self.settings.executable),
             "-i",
@@ -131,7 +202,13 @@ class HandBrakeRunner:
         if not isinstance(frame_count, int) or frame_count <= 0:
             raise RuntimeError("Unable to determine total frames from HandBrakeCLI scan")
         width, height = self._extract_geometry(title)
-        return SourceScanResult(total_frames=frame_count, width=width, height=height)
+        return SourceScanResult(
+            total_frames=frame_count,
+            width=width,
+            height=height,
+            frame_rate=self._extract_frame_rate(title),
+            duration_seconds=self._extract_duration_seconds(title),
+        )
 
     def run_job(
         self,
@@ -139,7 +216,9 @@ class HandBrakeRunner:
         progress_callback: Callable[[JobProgress], None] | None = None,
     ) -> None:
         is_audio_copy = job.preset_mode == "audio_copy"
-        frame_rate = self._probe_frame_rate(job.source_path) if is_audio_copy else None
+        frame_rate = job.source_frame_rate if is_audio_copy else None
+        if is_audio_copy and frame_rate is None:
+            frame_rate = self._probe_frame_rate(job.source_path)
         command = self.build_audio_command(job, frame_rate) if is_audio_copy else self.build_command(job)
         clip_duration = self._get_clip_duration(job, frame_rate) if is_audio_copy else None
         process = subprocess.Popen(
@@ -242,6 +321,46 @@ class HandBrakeRunner:
             return Path(located)
         raise RuntimeError("FFprobe was not found. It is required to convert frame ranges to audio time ranges.")
 
+    def _probe_audio_source(self, source_path: Path) -> SourceScanResult:
+        completed = subprocess.run(
+            [
+                str(self._get_ffprobe_executable()),
+                "-v",
+                "error",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                str(source_path),
+            ],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+        value = completed.stdout.strip()
+        if completed.returncode != 0 or not value:
+            detail = completed.stderr.strip() or "unable to read audio duration"
+            raise RuntimeError(f"FFprobe failed for {source_path.name}: {detail}")
+        try:
+            duration_seconds = float(value)
+        except ValueError as exc:
+            raise RuntimeError(f"Invalid audio duration reported for {source_path.name}: {value}") from exc
+        if not math.isfinite(duration_seconds) or duration_seconds <= 0:
+            raise RuntimeError(f"Invalid audio duration reported for {source_path.name}: {value}")
+        total_frames = max(1, math.ceil(duration_seconds * AUDIO_TIMELINE_RATE))
+        return SourceScanResult(
+            total_frames=total_frames,
+            frame_rate=AUDIO_TIMELINE_RATE,
+            duration_seconds=duration_seconds,
+            is_audio_only=True,
+        )
+
+    @staticmethod
+    def _escape_concat_path(path: Path) -> str:
+        return path.resolve().as_posix().replace("'", "'\\''")
+
     def _probe_frame_rate(self, source_path: Path) -> float:
         completed = subprocess.run(
             [
@@ -337,3 +456,23 @@ class HandBrakeRunner:
         if not isinstance(height, int) or height <= 0:
             height = None
         return width, height
+
+    def _extract_frame_rate(self, title: dict) -> float | None:
+        frame_rate = title.get("FrameRate") or {}
+        if not isinstance(frame_rate, dict):
+            return None
+        numerator = frame_rate.get("Num")
+        denominator = frame_rate.get("Den")
+        if not isinstance(numerator, (int, float)) or not isinstance(denominator, (int, float)) or denominator <= 0:
+            return None
+        value = float(numerator) / float(denominator)
+        return value if math.isfinite(value) and value > 0 else None
+
+    def _extract_duration_seconds(self, title: dict) -> float | None:
+        duration = title.get("Duration") or {}
+        if not isinstance(duration, dict):
+            return None
+        ticks = duration.get("Ticks")
+        if isinstance(ticks, (int, float)) and ticks > 0:
+            return ticks / 90000.0
+        return None

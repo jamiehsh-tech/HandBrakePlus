@@ -45,6 +45,9 @@ class VideoSource:
     total_frames: int | None = None
     width: int | None = None
     height: int | None = None
+    frame_rate: float | None = None
+    duration_seconds: float | None = None
+    is_audio_only: bool = False
     probe_error: str = ""
 
     @property
@@ -71,6 +74,8 @@ class EncodeJob:
     end_frame: int
     display_name: str
     preset_mode: str = "handbrake"
+    source_frame_rate: float | None = None
+    source_is_audio_only: bool = False
 
 
 @dataclass(slots=True)

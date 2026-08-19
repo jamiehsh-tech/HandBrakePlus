@@ -53,6 +53,9 @@ class SessionStore:
             "total_frames": source.total_frames,
             "width": source.width,
             "height": source.height,
+            "frame_rate": source.frame_rate,
+            "duration_seconds": source.duration_seconds,
+            "is_audio_only": source.is_audio_only,
             "probe_error": source.probe_error,
             "ranges": [
                 {
@@ -74,6 +77,8 @@ class SessionStore:
             "preset_name": job.preset_name,
             "preset_args": list(job.preset_args),
             "preset_mode": job.preset_mode,
+            "source_frame_rate": job.source_frame_rate,
+            "source_is_audio_only": job.source_is_audio_only,
             "start_frame": job.start_frame,
             "end_frame": job.end_frame,
             "display_name": job.display_name,
@@ -87,6 +92,9 @@ class SessionStore:
                 total_frames=item.get("total_frames"),
                 width=item.get("width"),
                 height=item.get("height"),
+                frame_rate=item.get("frame_rate"),
+                duration_seconds=item.get("duration_seconds"),
+                is_audio_only=bool(item.get("is_audio_only", False)) or Path(item["path"]).suffix.lower() == ".mka",
                 probe_error=item.get("probe_error", ""),
             )
             for clip_data in item.get("ranges", []):
@@ -116,6 +124,8 @@ class SessionStore:
                     end_frame=item["end_frame"],
                     display_name=item["display_name"],
                     preset_mode=item.get("preset_mode", "handbrake"),
+                    source_frame_rate=item.get("source_frame_rate"),
+                    source_is_audio_only=bool(item.get("source_is_audio_only", False)),
                 )
             )
         return jobs

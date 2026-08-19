@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import queue
+import re
+import shutil
 import sys
 import threading
 import json
@@ -14,11 +16,11 @@ from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from .config_store import ConfigStore
-from .handbrake_cli import HandBrakeRunner, HandBrakeSettings
+from .handbrake_cli import HandBrakeRunner, HandBrakeSettings, SourceScanResult
 from .models import ClipRange, EncodeJob, JobProgress, PresetTemplate, VideoSource
 from .queue_service import SequentialJobQueue
 from .session_store import SessionStore
-from .ui_sections import ProgressSection, QueueSection, RangeSection, SourceSection
+from .ui_sections import MergeSection, ProgressSection, QueueSection, RangeSection, SourceSection
 
 try:
     from tkinterdnd2 import DND_FILES, TkinterDnD
@@ -29,17 +31,21 @@ except ImportError:
 
 BaseTk = TkinterDnD.Tk if TkinterDnD is not None else tk.Tk
 
-VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".wmv", ".ts", ".m4v"}
+VIDEO_EXTENSIONS = {".mp4", ".mkv", ".mov", ".avi", ".wmv", ".ts", ".m4v", ".mka"}
 MIN_FOLDER_IMPORT_SIZE_BYTES = 100 * 1024 * 1024
 NORMAL_MIN_WINDOW_SIZE = (2800, 1280)
 COMPACT_MIN_WINDOW_SIZE = (720, 420)
 COMPACT_WINDOW_SIZE = (980, 620)
 LEFT_ONLY_MIN_WINDOW_SIZE = (1280, 1280)
 LEFT_ONLY_WINDOW_SIZE = (1480, 1280)
+MERGE_MIN_WINDOW_SIZE = (720, 520)
+MERGE_WINDOW_SIZE = (1280, 720)
 FULL_VIEW_MODE = "full"
 IMPORT_ONLY_VIEW_MODE = "compact_import"
 LEFT_ONLY_VIEW_MODE = "compact_left"
-VALID_VIEW_MODES = {FULL_VIEW_MODE, IMPORT_ONLY_VIEW_MODE, LEFT_ONLY_VIEW_MODE}
+MERGE_VIEW_MODE = "merge"
+VALID_VIEW_MODES = {FULL_VIEW_MODE, IMPORT_ONLY_VIEW_MODE, LEFT_ONLY_VIEW_MODE, MERGE_VIEW_MODE}
+TIME_CODE_PATTERN = re.compile(r"^(?P<hours>\d+):(?P<minutes>[0-5]\d):(?P<seconds>[0-5]\d)(?:\.(?P<milliseconds>\d{1,3}))?$")
 
 
 class HandBrakePlusApp(BaseTk):
@@ -65,8 +71,12 @@ class HandBrakePlusApp(BaseTk):
         self.selected_source_index: int | None = None
         self.selected_range_index: int | None = None
         self.progress_events: "queue.Queue[JobProgress]" = queue.Queue()
-        self.probe_events: "queue.Queue[tuple[str, int | None, int | None, int | None, str]]" = queue.Queue()
+        self.probe_events: "queue.Queue[tuple[str, SourceScanResult | None, str]]" = queue.Queue()
+        self.merge_events: "queue.Queue[tuple[Path | None, str]]" = queue.Queue()
         self.job_queue: SequentialJobQueue | None = None
+        self.merge_input_paths: list[Path] = []
+        self.merge_completed_paths: set[Path] = set()
+        self.merge_pending_paths: list[Path] = []
 
         self.handbrake_path_var = tk.StringVar(value=self.settings["handbrake_path"])
         self.ffmpeg_path_var = tk.StringVar(value=self.settings.get("ffmpeg_path", ""))
@@ -88,7 +98,7 @@ class HandBrakePlusApp(BaseTk):
         self._pre_compact_geometry: str | None = None
         self._pre_compact_window_state: str | None = None
         self.drop_hint_var = tk.StringVar(
-            value="Drop videos or folders here; folder import keeps videos over 100 MB" if TkinterDnD is not None else "Drag-and-drop requires tkinterdnd2; use Add videos for now"
+            value="Drop videos, MKA audio, or folders here" if TkinterDnD is not None else "Drag-and-drop requires tkinterdnd2; use Add videos for now"
         )
         self.start_frame_var.trace_add("write", self._on_start_frame_changed)
         self.end_frame_var.trace_add("write", self._on_end_frame_changed)
@@ -220,6 +230,10 @@ class HandBrakePlusApp(BaseTk):
         self.progress_frame.grid(row=1, column=0, sticky="ew", pady=(8, 0))
         self.log_frame.grid(row=2, column=0, sticky="nsew", pady=(8, 0))
 
+        self.merge_frame = MergeSection(self).build(self)
+        self.merge_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=0)
+        self._register_merge_drop_targets()
+
         self._apply_view_mode(self.view_mode_var.get(), restore_geometry=False)
 
     def _build_view_menu(self) -> None:
@@ -249,6 +263,13 @@ class HandBrakePlusApp(BaseTk):
             variable=self.view_mode_var,
             command=lambda: self._set_view_mode(FULL_VIEW_MODE),
         ).grid(row=0, column=3, sticky="w")
+        ttk.Radiobutton(
+            self.view_menu_frame,
+            text="Merge mode",
+            value=MERGE_VIEW_MODE,
+            variable=self.view_mode_var,
+            command=lambda: self._set_view_mode(MERGE_VIEW_MODE),
+        ).grid(row=0, column=4, sticky="w", padx=(10, 0))
 
     def _register_source_drop_targets(self) -> None:
         if TkinterDnD is None or DND_FILES is None:
@@ -262,6 +283,18 @@ class HandBrakePlusApp(BaseTk):
 
         register(self.source_frame)
 
+    def _register_merge_drop_targets(self) -> None:
+        if TkinterDnD is None or DND_FILES is None:
+            return
+
+        def register(widget: tk.Misc) -> None:
+            widget.drop_target_register(DND_FILES)
+            widget.dnd_bind("<<Drop>>", self._on_merge_files_dropped)
+            for child in widget.winfo_children():
+                register(child)
+
+        register(self.merge_frame)
+
     def _set_view_mode(self, mode: str) -> None:
         self.view_mode_var.set(mode)
         self._apply_view_mode(mode)
@@ -272,8 +305,9 @@ class HandBrakePlusApp(BaseTk):
 
         self.update_idletasks()
         previous_mode = self.current_view_mode
-        entering_compact = previous_mode == FULL_VIEW_MODE and mode != FULL_VIEW_MODE
-        leaving_compact = previous_mode != FULL_VIEW_MODE and mode == FULL_VIEW_MODE
+        compact_modes = {IMPORT_ONLY_VIEW_MODE, LEFT_ONLY_VIEW_MODE, MERGE_VIEW_MODE}
+        entering_compact = previous_mode == FULL_VIEW_MODE and mode in compact_modes
+        leaving_compact = previous_mode in compact_modes and mode == FULL_VIEW_MODE
 
         if entering_compact:
             self._pre_compact_geometry = self.geometry()
@@ -284,6 +318,8 @@ class HandBrakePlusApp(BaseTk):
             self.state("normal")
 
         self.config_frame.grid()
+        self.main_frame.grid()
+        self.merge_frame.grid_remove()
         self.range_frame.grid()
         self.right_panel.grid()
         self.main_frame.columnconfigure(0, weight=1)
@@ -312,6 +348,13 @@ class HandBrakePlusApp(BaseTk):
             self.minsize(*LEFT_ONLY_MIN_WINDOW_SIZE)
             if restore_geometry:
                 self.geometry(f"{LEFT_ONLY_WINDOW_SIZE[0]}x{LEFT_ONLY_WINDOW_SIZE[1]}")
+        elif mode == MERGE_VIEW_MODE:
+            self.config_frame.grid_remove()
+            self.main_frame.grid_remove()
+            self.merge_frame.grid()
+            self.minsize(*MERGE_MIN_WINDOW_SIZE)
+            if restore_geometry:
+                self.geometry(f"{MERGE_WINDOW_SIZE[0]}x{MERGE_WINDOW_SIZE[1]}")
         else:
             self.minsize(*NORMAL_MIN_WINDOW_SIZE)
             if leaving_compact:
@@ -531,6 +574,10 @@ class HandBrakePlusApp(BaseTk):
         return None
 
     def _recommended_preset_for_source(self, source: VideoSource) -> PresetTemplate | None:
+        if source.is_audio_only:
+            for preset in self.presets:
+                if preset.mode == "audio_copy":
+                    return preset
         fallback = self._find_preset_by_keyword("1080")
         if fallback is None:
             fallback = self.presets[0] if self.presets else None
@@ -572,9 +619,195 @@ class HandBrakePlusApp(BaseTk):
     def _add_videos(self) -> None:
         paths = filedialog.askopenfilenames(
             title="Select source videos",
-            filetypes=(("Video files", "*.mp4 *.mkv *.mov *.avi *.wmv *.ts *.m4v"), ("All files", "*.*")),
+            filetypes=(("Video/audio files", "*.mp4 *.mkv *.mov *.avi *.wmv *.ts *.m4v *.mka"), ("All files", "*.*")),
         )
         self._import_video_paths(paths)
+
+    def _add_merge_files(self, paths: tuple[str, ...] | list[str] | None = None) -> None:
+        if paths is None:
+            paths = filedialog.askopenfilenames(
+                title="Select files to merge",
+                filetypes=(("Video/audio files", "*.mp4 *.mkv *.mov *.avi *.wmv *.ts *.m4v *.mka"), ("All files", "*.*")),
+            )
+        if not paths:
+            return
+
+        candidates = self._iter_import_candidates(paths, expand_directories=False)
+        if not candidates:
+            messagebox.showwarning("Merge mode", "Select at least one supported video or audio file.")
+            return
+
+        existing_extensions = {path.suffix.lower() for path in self.merge_input_paths}
+        candidate_extensions = {path.suffix.lower() for path in candidates}
+        if len(existing_extensions | candidate_extensions) > 1:
+            messagebox.showerror("Merge failed", "All files in merge mode must have the same file type.")
+            return
+
+        existing_paths = {path.resolve() for path in self.merge_input_paths}
+        added_count = 0
+        for path in candidates:
+            resolved_path = path.resolve()
+            if resolved_path in existing_paths:
+                continue
+            self.merge_input_paths.append(resolved_path)
+            existing_paths.add(resolved_path)
+            added_count += 1
+        self._refresh_merge_view()
+        if added_count:
+            self._log(f"Added {added_count} file(s) to merge list.")
+
+    def _on_merge_files_dropped(self, event: object) -> None:
+        raw_data = getattr(event, "data", "")
+        if not raw_data:
+            return
+        try:
+            paths = list(self.tk.splitlist(raw_data))
+        except tk.TclError:
+            paths = []
+        if not paths:
+            paths = [raw_data]
+        self._add_merge_files(paths)
+
+    def _refresh_merge_view(self, selected_indices: list[int] | None = None) -> None:
+        self.merge_listbox.delete(0, tk.END)
+        for path in self.merge_input_paths:
+            label = str(path)
+            if path.resolve() in self.merge_completed_paths:
+                label += " [OK]"
+            self.merge_listbox.insert(tk.END, label)
+        if selected_indices:
+            valid_indices = [index for index in selected_indices if 0 <= index < len(self.merge_input_paths)]
+            for index in valid_indices:
+                self.merge_listbox.selection_set(index)
+            if valid_indices:
+                self.merge_listbox.see(valid_indices[0])
+
+    def _move_merge_up(self) -> None:
+        selected = sorted(self.merge_listbox.curselection())
+        if not selected or selected[0] == 0:
+            return
+        selected_set = set(selected)
+        for index in selected:
+            if index - 1 not in selected_set:
+                self.merge_input_paths[index - 1], self.merge_input_paths[index] = (
+                    self.merge_input_paths[index],
+                    self.merge_input_paths[index - 1],
+                )
+        self._refresh_merge_view([index - 1 if index > 0 else index for index in selected])
+
+    def _move_merge_down(self) -> None:
+        selected = sorted(self.merge_listbox.curselection())
+        if not selected or selected[-1] >= len(self.merge_input_paths) - 1:
+            return
+        selected_set = set(selected)
+        for index in reversed(selected):
+            if index + 1 not in selected_set:
+                self.merge_input_paths[index + 1], self.merge_input_paths[index] = (
+                    self.merge_input_paths[index],
+                    self.merge_input_paths[index + 1],
+                )
+        self._refresh_merge_view([index + 1 if index < len(self.merge_input_paths) - 1 else index for index in selected])
+
+    def _remove_merge_files(self) -> None:
+        selected = sorted(self.merge_listbox.curselection(), reverse=True)
+        if not selected:
+            return
+        for index in selected:
+            if 0 <= index < len(self.merge_input_paths):
+                del self.merge_input_paths[index]
+        self._refresh_merge_view()
+
+    def _clear_merge_files(self) -> None:
+        if not self.merge_input_paths:
+            return
+        self.merge_input_paths.clear()
+        self._refresh_merge_view()
+
+    def _merge_selected_files(self) -> None:
+        self._start_merge(list(self.merge_input_paths))
+
+    def _start_merge(self, input_paths: list[Path]) -> None:
+        unique_paths = list(dict.fromkeys(path.resolve() for path in input_paths if path.is_file()))
+        if len(unique_paths) < 2:
+            messagebox.showwarning("Merge mode", "Select or drop at least two files to merge.")
+            return
+        extensions = {path.suffix.lower() for path in unique_paths}
+        if len(extensions) != 1:
+            messagebox.showerror("Merge failed", "All files must have the same file type before merging.")
+            return
+        suffix = next(iter(extensions))
+        output_path = unique_paths[0].parent / f"{unique_paths[0].stem}-merge{suffix}"
+        if output_path.resolve() in unique_paths:
+            messagebox.showerror("Merge failed", "The output file cannot be one of the input files.")
+            return
+        if output_path.exists() and not messagebox.askyesno("Overwrite merged file", f"{output_path.name} already exists. Overwrite it?"):
+            return
+        self.merge_completed_paths.difference_update(unique_paths)
+        self.merge_completed_paths.discard(output_path.resolve())
+        self.merge_pending_paths = list(unique_paths)
+        self._refresh_merge_view()
+        self._log(f"Merging {len(unique_paths)} {suffix} file(s)...")
+        threading.Thread(
+            target=self._merge_files_async,
+            args=(unique_paths, output_path),
+            daemon=True,
+        ).start()
+
+    def _merge_files_async(self, input_paths: list[Path], output_path: Path) -> None:
+        hb_path = Path(self.handbrake_path_var.get().strip())
+        ffmpeg_text = self.ffmpeg_path_var.get().strip()
+        ffmpeg_path = Path(ffmpeg_text) if ffmpeg_text else None
+        runner = HandBrakeRunner(HandBrakeSettings(executable=hb_path, ffmpeg_executable=ffmpeg_path))
+        try:
+            runner.merge_files(input_paths, output_path)
+        except Exception as exc:
+            if output_path.exists():
+                try:
+                    output_path.unlink()
+                except OSError:
+                    pass
+            report_lines = [
+                "HandBrakePlus merge failed",
+                f"Output: {output_path}",
+                "Inputs:",
+                *(f"  {path}" for path in input_paths),
+                "",
+                str(exc),
+            ]
+            self.merge_events.put((None, "\n".join(report_lines)))
+            return
+        self.merge_events.put((output_path, ""))
+
+    def _show_copyable_error(self, title: str, message: str) -> None:
+        dialog = tk.Toplevel(self)
+        dialog.title(title)
+        dialog.geometry("780x460")
+        dialog.transient(self)
+        dialog.columnconfigure(0, weight=1)
+        dialog.rowconfigure(0, weight=1)
+
+        error_text = tk.Text(dialog, wrap="word")
+        error_text.grid(row=0, column=0, sticky="nsew", padx=(12, 0), pady=12)
+        scrollbar = ttk.Scrollbar(dialog, orient="vertical", command=error_text.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns", padx=(0, 12), pady=12)
+        error_text.configure(yscrollcommand=scrollbar.set)
+        error_text.insert("1.0", message)
+        error_text.configure(state="disabled")
+
+        button_bar = ttk.Frame(dialog)
+        button_bar.grid(row=1, column=0, columnspan=2, sticky="e", padx=12, pady=(0, 12))
+
+        def copy_error() -> None:
+            self.clipboard_clear()
+            self.clipboard_append(message)
+            self.update()
+            copy_button.configure(text="Copied")
+
+        copy_button = ttk.Button(button_bar, text="Copy error", command=copy_error)
+        copy_button.pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Close", command=dialog.destroy).pack(side="left")
+        dialog.bind("<Escape>", lambda _event: dialog.destroy())
+        dialog.grab_set()
 
     def _export_sources_to_file(self) -> None:
         if not self.sources:
@@ -690,12 +923,16 @@ class HandBrakePlusApp(BaseTk):
                 continue
         return candidates
 
-    def _import_video_paths(self, paths: tuple[str, ...] | list[str], expand_directories: bool = False) -> None:
+    def _import_video_paths(
+        self,
+        paths: tuple[str, ...] | list[str],
+        expand_directories: bool = False,
+    ) -> None:
         if not paths:
             return
+        candidate_paths = self._iter_import_candidates(paths, expand_directories=expand_directories)
         existing = {source.path for source in self.sources}
         added_count = 0
-        candidate_paths = self._iter_import_candidates(paths, expand_directories=expand_directories)
         runner = self._create_runner_if_available()
         for source_path in candidate_paths:
             if source_path not in existing:
@@ -789,7 +1026,7 @@ class HandBrakePlusApp(BaseTk):
 
     def _on_start_frame_changed(self, *_args: object) -> None:
         start_text = self._coerce_frame_var(self.start_frame_var)
-        end_text = self.end_frame_var.get().strip()
+        end_text = self._coerce_frame_var(self.end_frame_var)
         if not start_text or not end_text:
             self._update_frame_count_display()
             return
@@ -826,9 +1063,26 @@ class HandBrakePlusApp(BaseTk):
             return
         self.frame_count_var.set(str(end_frame - start_frame + 1))
 
-    def _normalize_frame_text(self, value: str) -> str:
+    def _normalize_frame_text(self, value: str, audio_only: bool | None = None) -> str:
         text = value.strip()
-        if not text or "," not in text:
+        if not text:
+            return text
+        if audio_only is None:
+            source = self._current_source()
+            audio_only = source is not None and source.is_audio_only
+        if audio_only:
+            match = TIME_CODE_PATTERN.fullmatch(text)
+            if match:
+                milliseconds = int(match.group("milliseconds") or "0")
+                milliseconds *= 10 ** (3 - len(match.group("milliseconds") or "0"))
+                total_milliseconds = (
+                    int(match.group("hours")) * 3_600_000
+                    + int(match.group("minutes")) * 60_000
+                    + int(match.group("seconds")) * 1_000
+                    + milliseconds
+                )
+                return str(total_milliseconds)
+        if "," not in text:
             return text
         frame_text, _, _rest = text.partition(",")
         frame_text = frame_text.strip()
@@ -1088,6 +1342,8 @@ class HandBrakePlusApp(BaseTk):
                     end_frame=clip.end_frame,
                     display_name=f"{source.path.stem}-{clip.index}",
                     preset_mode=preset.mode,
+                    source_frame_rate=source.frame_rate,
+                    source_is_audio_only=source.is_audio_only,
                 )
             )
         return jobs
@@ -1161,7 +1417,7 @@ class HandBrakePlusApp(BaseTk):
         self.source_listbox.delete(0, tk.END)
         for source in self.sources:
             source_label = source.path.name
-            if source.ranges and all(clip.completed for clip in source.ranges):
+            if (source.ranges and all(clip.completed for clip in source.ranges)) or source.path.resolve() in self.merge_completed_paths:
                 source_label += " [OK]"
             self.source_listbox.insert(tk.END, source_label)
         if self.selected_source_index is not None and self.selected_source_index < len(self.sources):
@@ -1177,13 +1433,19 @@ class HandBrakePlusApp(BaseTk):
             return
         max_frame_index = source.max_frame_index
         if source.total_frames is not None and max_frame_index is not None:
-            self.source_info_var.set(f"Total frames: {source.total_frames} | Valid frame index: 0 - {max_frame_index}")
+            if source.is_audio_only:
+                duration_text = f" | Duration: {source.duration_seconds:.3f}s" if source.duration_seconds is not None else ""
+                self.source_info_var.set(f"Audio timeline: milliseconds (timecode paste supported) | Valid range: 0 - {max_frame_index}{duration_text}")
+            else:
+                self.source_info_var.set(f"Total frames: {source.total_frames} | Valid frame index: 0 - {max_frame_index}")
         elif source.probe_error:
             self.source_info_var.set(f"Frame scan unavailable: {source.probe_error}")
         else:
             self.source_info_var.set("Frame scan pending")
         for clip in source.ranges:
-            clip_label = f"{clip.index}: frame {clip.start_frame} - {clip.end_frame} ({clip.duration_frames} frames)"
+            unit = "ms" if source.is_audio_only else "frame"
+            duration_unit = "ms" if source.is_audio_only else "frames"
+            clip_label = f"{clip.index}: {unit} {clip.start_frame} - {clip.end_frame} ({clip.duration_frames} {duration_unit})"
             if clip.completed:
                 clip_label += " [OK]"
             self.range_listbox.insert(tk.END, clip_label)
@@ -1213,8 +1475,27 @@ class HandBrakePlusApp(BaseTk):
             pass
         try:
             while True:
-                source_path, total_frames, width, height, probe_error = self.probe_events.get_nowait()
-                self._apply_probe_event(source_path, total_frames, width, height, probe_error)
+                source_path, scan_result, probe_error = self.probe_events.get_nowait()
+                self._apply_probe_event(source_path, scan_result, probe_error)
+        except queue.Empty:
+            pass
+        try:
+            while True:
+                merged_path, merge_error = self.merge_events.get_nowait()
+                if merge_error:
+                    self.merge_pending_paths.clear()
+                    self._log(f"Merge failed: {merge_error}")
+                    self._show_copyable_error("Merge failed", merge_error)
+                elif merged_path is not None:
+                    self._log(f"Merged file created: {merged_path.name}")
+                    completed_inputs = self.merge_pending_paths or self.merge_input_paths
+                    self.merge_completed_paths.update(path.resolve() for path in completed_inputs)
+                    self.merge_completed_paths.add(merged_path.resolve())
+                    self.merge_pending_paths.clear()
+                    self._refresh_merge_view()
+                    self._refresh_sources_view()
+                    messagebox.showinfo("Merge completed", f"Merged file created:\n{merged_path}")
+                    self._import_video_paths([str(merged_path)])
         except queue.Empty:
             pass
         self.after(150, self._poll_progress_events)
@@ -1258,21 +1539,26 @@ class HandBrakePlusApp(BaseTk):
     def _apply_probe_event(
         self,
         source_path: str,
-        total_frames: int | None,
-        width: int | None,
-        height: int | None,
+        scan_result: SourceScanResult | None,
         probe_error: str,
     ) -> None:
         for source in self.sources:
             if str(source.path) != source_path:
                 continue
-            source.total_frames = total_frames
-            source.width = width
-            source.height = height
+            source.total_frames = scan_result.total_frames if scan_result is not None else None
+            source.width = scan_result.width if scan_result is not None else None
+            source.height = scan_result.height if scan_result is not None else None
+            source.frame_rate = scan_result.frame_rate if scan_result is not None else None
+            source.duration_seconds = scan_result.duration_seconds if scan_result is not None else None
+            source.is_audio_only = scan_result.is_audio_only if scan_result is not None else False
             source.probe_error = probe_error
-            if total_frames is not None:
-                resolution_text = f", resolution {width}x{height}" if width is not None and height is not None else ""
-                self._log(f"Scanned {source.path.name}: total frames {total_frames}{resolution_text}")
+            if scan_result is not None:
+                if scan_result.is_audio_only:
+                    duration_text = f", duration {scan_result.duration_seconds:.3f}s" if scan_result.duration_seconds is not None else ""
+                    self._log(f"Scanned audio source {source.path.name}: millisecond timeline{duration_text}")
+                else:
+                    resolution_text = f", resolution {scan_result.width}x{scan_result.height}" if scan_result.width is not None and scan_result.height is not None else ""
+                    self._log(f"Scanned {source.path.name}: total frames {scan_result.total_frames}{resolution_text}")
                 if self._current_source() is source:
                     self._apply_preset_for_source(source)
             elif probe_error:
@@ -1287,16 +1573,18 @@ class HandBrakePlusApp(BaseTk):
 
     def _create_runner_if_available(self) -> HandBrakeRunner | None:
         hb_path = Path(self.handbrake_path_var.get().strip())
-        if not hb_path.exists():
+        ffmpeg_text = self.ffmpeg_path_var.get().strip()
+        ffmpeg_path = Path(ffmpeg_text) if ffmpeg_text else None
+        if not hb_path.exists() and (ffmpeg_path is None or not ffmpeg_path.exists()) and not shutil.which("ffmpeg"):
             return None
-        return HandBrakeRunner(HandBrakeSettings(executable=hb_path))
+        return HandBrakeRunner(HandBrakeSettings(executable=hb_path, ffmpeg_executable=ffmpeg_path))
 
     def _probe_source_async(self, source_path: Path, runner: HandBrakeRunner) -> None:
         try:
             scan_result = runner.probe_source(source_path)
-            self.probe_events.put((str(source_path), scan_result.total_frames, scan_result.width, scan_result.height, ""))
+            self.probe_events.put((str(source_path), scan_result, ""))
         except Exception as exc:
-            self.probe_events.put((str(source_path), None, None, None, str(exc)))
+            self.probe_events.put((str(source_path), None, str(exc)))
 
     def _load_session(self) -> None:
         payload = self.session_store.load()

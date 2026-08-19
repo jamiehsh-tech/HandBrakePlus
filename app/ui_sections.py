@@ -49,7 +49,7 @@ class RangeSection:
         self.frame.columnconfigure(2, weight=1)
         self.frame.rowconfigure(2, weight=1)
 
-        ttk.Label(self.frame, text="Frame range").grid(row=0, column=0, sticky="w", padx=8, pady=6)
+        ttk.Label(self.frame, text="Frame/ms or HH:MM:SS.mmm").grid(row=0, column=0, sticky="w", padx=8, pady=6)
         range_inputs_frame = ttk.Frame(self.frame)
         range_inputs_frame.grid(row=0, column=1, sticky="w", padx=8, pady=6)
         ttk.Entry(range_inputs_frame, textvariable=controller.start_frame_var, width=12).pack(side="left")
@@ -77,6 +77,43 @@ class RangeSection:
         controller.range_listbox.bind("<<ListboxSelect>>", controller._on_range_selected)
         controller.range_listbox.bind("<Delete>", controller._on_delete_range_key)
         controller.range_frame = self.frame
+        return self.frame
+
+
+class MergeSection:
+    """Build the standalone merge view."""
+
+    def __init__(self, parent: ttk.Frame) -> None:
+        self.frame = ttk.LabelFrame(parent, text="Merge media")
+
+    def build(self, controller: HandBrakePlusApp) -> ttk.LabelFrame:
+        self.frame.columnconfigure(0, weight=1)
+        self.frame.rowconfigure(1, weight=1)
+
+        button_bar = ttk.Frame(self.frame)
+        button_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+        ttk.Button(button_bar, text="Add files", command=controller._add_merge_files).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Move up", command=controller._move_merge_up).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Move down", command=controller._move_merge_down).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Remove selected", command=controller._remove_merge_files).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Clear", command=controller._clear_merge_files).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Merge", command=controller._merge_selected_files).pack(side="left")
+
+        list_frame = ttk.Frame(self.frame)
+        list_frame.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        list_frame.columnconfigure(0, weight=1)
+        list_frame.rowconfigure(0, weight=1)
+        controller.merge_listbox = tk.Listbox(list_frame, height=18, exportselection=False, selectmode="extended")
+        controller.merge_listbox.grid(row=0, column=0, sticky="nsew")
+        scrollbar = ttk.Scrollbar(list_frame, orient="vertical", command=controller.merge_listbox.yview)
+        scrollbar.grid(row=0, column=1, sticky="ns")
+        controller.merge_listbox.configure(yscrollcommand=scrollbar.set)
+
+        ttk.Label(
+            self.frame,
+            text="Drag files here one by one. All files must have the same extension; output defaults to first-file-name-merge.ext.",
+        ).grid(row=2, column=0, sticky="w", padx=8, pady=(0, 8))
+        controller.merge_frame = self.frame
         return self.frame
 
 
