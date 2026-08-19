@@ -1,4 +1,7 @@
-"""UI section builders for the HandBrakePlus main window."""
+"""UI section builders for the HandBrakePlus main window.
+
+中文说明：负责构建导入、截取、合并、队列和进度等独立界面区域。
+"""
 
 from __future__ import annotations
 
@@ -69,7 +72,6 @@ class RangeSection:
         range_bottom_actions_frame.grid(row=1, column=2, sticky="w", padx=(4, 8), pady=6)
         ttk.Button(range_bottom_actions_frame, text="Add range", command=controller._add_range_to_source).pack(side="left", padx=(0, 8))
         ttk.Button(range_bottom_actions_frame, text="Update selected", command=controller._update_selected_range).pack(side="left", padx=(0, 8))
-        ttk.Button(range_bottom_actions_frame, text="Remove selected", command=controller._remove_selected_range).pack(side="left", padx=(0, 8))
         ttk.Button(range_bottom_actions_frame, text="Queue selected", command=controller._add_selected_range_to_batch).pack(side="left")
 
         controller.range_listbox = tk.Listbox(self.frame, height=16, exportselection=False)
