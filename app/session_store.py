@@ -73,6 +73,7 @@ class SessionStore:
             "clip_index": job.clip_index,
             "preset_name": job.preset_name,
             "preset_args": list(job.preset_args),
+            "preset_mode": job.preset_mode,
             "start_frame": job.start_frame,
             "end_frame": job.end_frame,
             "display_name": job.display_name,
@@ -114,6 +115,7 @@ class SessionStore:
                     start_frame=item["start_frame"],
                     end_frame=item["end_frame"],
                     display_name=item["display_name"],
+                    preset_mode=item.get("preset_mode", "handbrake"),
                 )
             )
         return jobs

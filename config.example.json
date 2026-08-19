@@ -1,5 +1,6 @@
 {
   "handbrake_path": "C:\\Program Files\\HandBrakeCLI\\HandBrakeCLI.exe",
+  "ffmpeg_path": "",
   "default_output_dir": "",
   "last_preset": "4K H.265 NVENC 10Mbps VFR",
   "presets": [
@@ -116,6 +117,12 @@
         "--arate",
         "auto"
       ]
+    },
+    {
+      "name": "Audio only - source copy",
+      "description": "仅导出视频内全部音频轨道，使用 FFmpeg 原音频复制，不导出视频、不重编码音频，输出 MKA。 / Extract embedded audio tracks with FFmpeg stream copy; no video or audio re-encoding.",
+      "mode": "audio_copy",
+      "handbrake_args": []
     }
   ]
 }

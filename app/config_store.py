@@ -111,11 +111,18 @@ DEFAULT_PRESET_ITEMS = [
         "description": "Fallback x265 preset when NVENC is not available.",
         "handbrake_args": ["--format", "av_mp4", "--encoder", "x265", "--quality", "20", "--vfr", "--aencoder", "av_aac", "--ab", "256", "--mixdown", "stereo", "--arate", "auto"],
     },
+    {
+        "name": "Audio only - source copy",
+        "description": "仅导出视频内全部音频轨道，使用 FFmpeg 原音频复制，不导出视频、不重编码音频，输出 MKA。 / Extract embedded audio tracks with FFmpeg stream copy; no video or audio re-encoding.",
+        "mode": "audio_copy",
+        "handbrake_args": [],
+    },
 ]
 
 
 DEFAULT_CONFIG = {
     "handbrake_path": DEFAULT_HANDBRAKE_PATH,
+    "ffmpeg_path": "",
     "default_output_dir": "",
     "last_preset": "4K H.265 NVENC 10Mbps VFR",
     "last_view_mode": "full",
@@ -157,6 +164,7 @@ class ConfigStore:
                     name=item["name"],
                     description=item.get("description", ""),
                     handbrake_args=list(item.get("handbrake_args", [])),
+                    mode=item.get("mode", "handbrake"),
                 )
             )
         return presets
@@ -189,6 +197,7 @@ class ConfigStore:
                         "name": name,
                         "description": item.get("description", ""),
                         "handbrake_args": list(item.get("handbrake_args", [])),
+                        "mode": item.get("mode", "handbrake"),
                     }
                 )
             seen_names.add(name)

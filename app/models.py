@@ -14,6 +14,7 @@ class PresetTemplate:
     name: str
     description: str
     handbrake_args: list[str] = field(default_factory=list)
+    mode: str = "handbrake"
 
 
 @dataclass(slots=True)
@@ -69,6 +70,7 @@ class EncodeJob:
     start_frame: int
     end_frame: int
     display_name: str
+    preset_mode: str = "handbrake"
 
 
 @dataclass(slots=True)

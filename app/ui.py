@@ -69,6 +69,7 @@ class HandBrakePlusApp(BaseTk):
         self.job_queue: SequentialJobQueue | None = None
 
         self.handbrake_path_var = tk.StringVar(value=self.settings["handbrake_path"])
+        self.ffmpeg_path_var = tk.StringVar(value=self.settings.get("ffmpeg_path", ""))
         self.output_dir_var = tk.StringVar(value=self.settings.get("default_output_dir", ""))
         self.preset_var = tk.StringVar(value=self.settings.get("last_preset", self.presets[0].name if self.presets else ""))
         initial_view_mode = self.settings.get("last_view_mode", FULL_VIEW_MODE)
@@ -171,17 +172,21 @@ class HandBrakePlusApp(BaseTk):
         ttk.Entry(self.config_frame, textvariable=self.handbrake_path_var).grid(row=0, column=1, columnspan=3, sticky="ew", padx=8, pady=6)
         ttk.Button(self.config_frame, text="Browse", command=self._browse_handbrake).grid(row=0, column=4, sticky="ew", padx=8, pady=6)
 
-        ttk.Label(self.config_frame, text="Output folder").grid(row=1, column=0, sticky="w", padx=8, pady=6)
-        ttk.Entry(self.config_frame, textvariable=self.output_dir_var).grid(row=1, column=1, columnspan=3, sticky="ew", padx=8, pady=6)
-        ttk.Button(self.config_frame, text="Browse", command=self._browse_output_dir).grid(row=1, column=4, sticky="ew", padx=8, pady=6)
+        ttk.Label(self.config_frame, text="FFmpeg (audio preset)").grid(row=1, column=0, sticky="w", padx=8, pady=6)
+        ttk.Entry(self.config_frame, textvariable=self.ffmpeg_path_var).grid(row=1, column=1, columnspan=3, sticky="ew", padx=8, pady=6)
+        ttk.Button(self.config_frame, text="Browse", command=self._browse_ffmpeg).grid(row=1, column=4, sticky="ew", padx=8, pady=6)
 
-        ttk.Label(self.config_frame, text="Preset").grid(row=2, column=0, sticky="w", padx=8, pady=6)
+        ttk.Label(self.config_frame, text="Output folder").grid(row=2, column=0, sticky="w", padx=8, pady=6)
+        ttk.Entry(self.config_frame, textvariable=self.output_dir_var).grid(row=2, column=1, columnspan=3, sticky="ew", padx=8, pady=6)
+        ttk.Button(self.config_frame, text="Browse", command=self._browse_output_dir).grid(row=2, column=4, sticky="ew", padx=8, pady=6)
+
+        ttk.Label(self.config_frame, text="Preset").grid(row=3, column=0, sticky="w", padx=8, pady=6)
         preset_values = [preset.name for preset in self.presets]
         self.preset_combo = ttk.Combobox(self.config_frame, textvariable=self.preset_var, values=preset_values, state="readonly")
-        self.preset_combo.grid(row=2, column=1, sticky="ew", padx=8, pady=6)
+        self.preset_combo.grid(row=3, column=1, sticky="ew", padx=8, pady=6)
         self.preset_combo.bind("<<ComboboxSelected>>", lambda _event: self._on_preset_changed())
-        ttk.Button(self.config_frame, text="Edit presets", command=self._open_preset_editor).grid(row=2, column=2, sticky="w", padx=8, pady=6)
-        ttk.Label(self.config_frame, textvariable=self.status_var).grid(row=2, column=3, columnspan=3, sticky="w", padx=8, pady=6)
+        ttk.Button(self.config_frame, text="Edit presets", command=self._open_preset_editor).grid(row=3, column=2, sticky="w", padx=8, pady=6)
+        ttk.Label(self.config_frame, textvariable=self.status_var).grid(row=3, column=3, columnspan=3, sticky="w", padx=8, pady=6)
 
         self.main_frame = ttk.Frame(self)
         self.main_frame.grid(row=2, column=0, sticky="nsew", padx=12, pady=0)
@@ -322,6 +327,11 @@ class HandBrakePlusApp(BaseTk):
         if path:
             self.handbrake_path_var.set(path)
 
+    def _browse_ffmpeg(self) -> None:
+        path = filedialog.askopenfilename(title="Select ffmpeg.exe", filetypes=(("Executable", "*.exe"), ("All files", "*.*")))
+        if path:
+            self.ffmpeg_path_var.set(path)
+
     def _browse_output_dir(self) -> None:
         path = filedialog.askdirectory(title="Select output folder")
         if path:
@@ -353,6 +363,7 @@ class HandBrakePlusApp(BaseTk):
                 "name": preset.name,
                 "description": preset.description,
                 "handbrake_args": list(preset.handbrake_args),
+                "mode": preset.mode,
             }
             for preset in self.presets
         ]
@@ -368,10 +379,11 @@ class HandBrakePlusApp(BaseTk):
         editor_frame = ttk.Frame(dialog)
         editor_frame.grid(row=0, column=1, sticky="nsew", padx=(8, 12), pady=12)
         editor_frame.columnconfigure(1, weight=1)
-        editor_frame.rowconfigure(5, weight=1)
+        editor_frame.rowconfigure(3, weight=1)
 
         name_var = tk.StringVar()
         description_var = tk.StringVar()
+        mode_var = tk.StringVar(value="handbrake")
 
         ttk.Label(editor_frame, text="Name").grid(row=0, column=0, sticky="w", pady=(0, 8))
         name_entry = ttk.Entry(editor_frame, textvariable=name_var)
@@ -381,17 +393,21 @@ class HandBrakePlusApp(BaseTk):
         description_entry = ttk.Entry(editor_frame, textvariable=description_var)
         description_entry.grid(row=1, column=1, sticky="ew", pady=(0, 8))
 
-        ttk.Label(editor_frame, text="HandBrake args").grid(row=2, column=0, sticky="nw", pady=(0, 8))
+        ttk.Label(editor_frame, text="Mode").grid(row=2, column=0, sticky="w", pady=(0, 8))
+        mode_combo = ttk.Combobox(editor_frame, textvariable=mode_var, values=("handbrake", "audio_copy"), state="readonly")
+        mode_combo.grid(row=2, column=1, sticky="w", pady=(0, 8))
+
+        ttk.Label(editor_frame, text="HandBrake args").grid(row=3, column=0, sticky="nw", pady=(0, 8))
         args_text = tk.Text(editor_frame, height=18, wrap="word")
-        args_text.grid(row=2, column=1, sticky="nsew", pady=(0, 8))
+        args_text.grid(row=3, column=1, sticky="nsew", pady=(0, 8))
 
         ttk.Label(
             editor_frame,
             text="One argument per line, or paste space-separated arguments. Example: --encoder nvenc_h265",
-        ).grid(row=3, column=1, sticky="w", pady=(0, 8))
+        ).grid(row=4, column=1, sticky="w", pady=(0, 8))
 
         button_bar = ttk.Frame(editor_frame)
-        button_bar.grid(row=4, column=1, sticky="w", pady=(0, 8))
+        button_bar.grid(row=5, column=1, sticky="w", pady=(0, 8))
 
         def refresh_preset_list(selected_index: int | None = None) -> None:
             preset_listbox.delete(0, tk.END)
@@ -407,6 +423,7 @@ class HandBrakePlusApp(BaseTk):
             else:
                 name_var.set("")
                 description_var.set("")
+                mode_var.set("handbrake")
                 args_text.delete("1.0", tk.END)
 
         def parse_args() -> list[str]:
@@ -423,6 +440,7 @@ class HandBrakePlusApp(BaseTk):
             item = preset_items[index]
             name_var.set(item["name"])
             description_var.set(item.get("description", ""))
+            mode_var.set(item.get("mode", "handbrake"))
             args_text.delete("1.0", tk.END)
             args_text.insert("1.0", "\n".join(item.get("handbrake_args", [])))
 
@@ -444,11 +462,12 @@ class HandBrakePlusApp(BaseTk):
                 "name": name,
                 "description": description_var.get().strip(),
                 "handbrake_args": parse_args(),
+                "mode": mode_var.get().strip() or "handbrake",
             }
             refresh_preset_list(index)
 
         def add_preset() -> None:
-            preset_items.append({"name": "New preset", "description": "", "handbrake_args": []})
+            preset_items.append({"name": "New preset", "description": "", "handbrake_args": [], "mode": "handbrake"})
             refresh_preset_list(len(preset_items) - 1)
 
         def delete_preset() -> None:
@@ -474,6 +493,7 @@ class HandBrakePlusApp(BaseTk):
                         "name": name,
                         "description": str(item.get("description", "")).strip(),
                         "handbrake_args": list(item.get("handbrake_args", [])),
+                        "mode": str(item.get("mode", "handbrake")).strip() or "handbrake",
                     }
                 )
             if not normalized:
@@ -1067,11 +1087,14 @@ class HandBrakePlusApp(BaseTk):
                     start_frame=clip.start_frame,
                     end_frame=clip.end_frame,
                     display_name=f"{source.path.stem}-{clip.index}",
+                    preset_mode=preset.mode,
                 )
             )
         return jobs
 
     def _get_output_suffix_for_preset(self, preset: PresetTemplate) -> str:
+        if preset.mode == "audio_copy":
+            return ".mka"
         args = preset.handbrake_args
         for index, value in enumerate(args[:-1]):
             if value != "--format":
@@ -1108,10 +1131,17 @@ class HandBrakePlusApp(BaseTk):
             messagebox.showinfo("Queue empty", "Add at least one job before encoding.")
             return
         hb_path = Path(self.handbrake_path_var.get().strip())
-        if not hb_path.exists():
+        ffmpeg_text = self.ffmpeg_path_var.get().strip()
+        ffmpeg_path = Path(ffmpeg_text) if ffmpeg_text else None
+        needs_handbrake = any(job.preset_mode != "audio_copy" for job in self.batch_jobs)
+        needs_ffmpeg = any(job.preset_mode == "audio_copy" for job in self.batch_jobs)
+        if needs_handbrake and not hb_path.exists():
             messagebox.showerror("HandBrake not found", f"HandBrakeCLI.exe does not exist at:\n{hb_path}")
             return
-        runner = HandBrakeRunner(HandBrakeSettings(executable=hb_path))
+        if needs_ffmpeg and ffmpeg_path is not None and not ffmpeg_path.exists():
+            messagebox.showerror("FFmpeg not found", f"ffmpeg.exe does not exist at:\n{ffmpeg_path}")
+            return
+        runner = HandBrakeRunner(HandBrakeSettings(executable=hb_path, ffmpeg_executable=ffmpeg_path))
         self.job_queue = SequentialJobQueue(runner)
         self.job_queue.add_jobs(list(self.batch_jobs))
         self.status_var.set("Encoding")
@@ -1281,6 +1311,7 @@ class HandBrakePlusApp(BaseTk):
 
     def save_state(self) -> None:
         self.settings["handbrake_path"] = self.handbrake_path_var.get().strip()
+        self.settings["ffmpeg_path"] = self.ffmpeg_path_var.get().strip()
         self.settings["default_output_dir"] = self.output_dir_var.get().strip()
         self.settings["last_preset"] = self.preset_var.get().strip()
         self.settings["last_view_mode"] = self.view_mode_var.get().strip()
