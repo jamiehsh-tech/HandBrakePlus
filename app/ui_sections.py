@@ -50,7 +50,7 @@ class RangeSection:
 
     def build(self, controller: HandBrakePlusApp) -> ttk.LabelFrame:
         self.frame.columnconfigure(2, weight=1)
-        self.frame.rowconfigure(2, weight=1)
+        self.frame.rowconfigure(3, weight=1)
 
         ttk.Label(self.frame, text="Frame/ms or HH:MM:SS.mmm").grid(row=0, column=0, sticky="w", padx=8, pady=6)
         range_inputs_frame = ttk.Frame(self.frame)
@@ -62,20 +62,23 @@ class RangeSection:
         range_top_actions_frame = ttk.Frame(self.frame)
         range_top_actions_frame.grid(row=0, column=2, sticky="w", padx=(4, 8), pady=6)
         ttk.Button(range_top_actions_frame, text="Full video", command=controller._fill_full_video_range).pack(side="left", padx=(0, 8))
-        ttk.Button(range_top_actions_frame, text="Sort", command=controller._sort_ranges).pack(side="left", padx=(0, 8))
-        ttk.Button(range_top_actions_frame, text="Clear source", command=controller._clear_ranges).pack(side="left")
 
         ttk.Label(self.frame, text="Frame count").grid(row=1, column=0, sticky="w", padx=8, pady=6)
         ttk.Entry(self.frame, textvariable=controller.frame_count_var, width=16, state="readonly").grid(row=1, column=1, sticky="w", padx=8, pady=6)
 
         range_bottom_actions_frame = ttk.Frame(self.frame)
-        range_bottom_actions_frame.grid(row=1, column=2, sticky="w", padx=(4, 8), pady=6)
-        ttk.Button(range_bottom_actions_frame, text="Add range", command=controller._add_range_to_source).pack(side="left", padx=(0, 8))
-        ttk.Button(range_bottom_actions_frame, text="Update selected", command=controller._update_selected_range).pack(side="left", padx=(0, 8))
-        ttk.Button(range_bottom_actions_frame, text="Queue selected", command=controller._add_selected_range_to_batch).pack(side="left")
+        range_bottom_actions_frame.grid(row=1, column=1, sticky="e", padx=(8, 0), pady=6)
+        ttk.Button(range_bottom_actions_frame, text="Add range", command=controller._add_range_to_source).pack(side="left")
+
+        range_third_actions_frame = ttk.Frame(self.frame)
+        range_third_actions_frame.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=6)
+        ttk.Button(range_third_actions_frame, text="Sort", command=controller._sort_ranges).pack(side="left", padx=(0, 8))
+        ttk.Button(range_third_actions_frame, text="Clear source", command=controller._clear_ranges).pack(side="left", padx=(0, 8))
+        ttk.Button(range_third_actions_frame, text="Update selected", command=controller._update_selected_range).pack(side="left", padx=(0, 8))
+        ttk.Button(range_third_actions_frame, text="Queue selected", command=controller._add_selected_range_to_batch).pack(side="left")
 
         controller.range_listbox = tk.Listbox(self.frame, height=16, exportselection=False)
-        controller.range_listbox.grid(row=2, column=0, columnspan=3, sticky="nsew", padx=8, pady=(0, 8))
+        controller.range_listbox.grid(row=3, column=0, columnspan=3, sticky="nsew", padx=8, pady=(0, 8))
         controller.range_listbox.bind("<<ListboxSelect>>", controller._on_range_selected)
         controller.range_listbox.bind("<Delete>", controller._on_delete_range_key)
         controller.range_frame = self.frame
@@ -132,10 +135,10 @@ class QueueSection:
         button_bar = ttk.Frame(self.frame)
         button_bar.grid(row=0, column=0, sticky="ew", padx=8, pady=8)
         ttk.Button(button_bar, text="Add selected all", command=controller._add_current_source_to_batch).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Start", command=controller._start_encoding).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Add selected one", command=controller._add_selected_range_to_batch).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Add all sources", command=controller._add_all_sources_to_batch).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Clear", command=controller._clear_queue).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Start", command=controller._start_encoding).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Stop", command=controller._stop_queue).pack(side="left")
 
         controller.queue_tree = ttk.Treeview(self.frame, columns=("source", "range", "output", "preset"), show="headings", height=13, selectmode="extended")

@@ -40,7 +40,10 @@ class RuntimeMixin:
         if source.total_frames is not None and max_frame_index is not None:
             if source.is_audio_only:
                 duration_text = f" | Duration: {source.duration_seconds:.3f}s" if source.duration_seconds is not None else ""
-                self.source_info_var.set(f"Audio timeline: milliseconds (timecode paste supported) | Valid range: 0 - {max_frame_index}{duration_text}")
+                self.source_info_var.set(
+                    f"Audio timeline: milliseconds (timecode paste supported)\n"
+                    f"Valid range: 0 - {max_frame_index}{duration_text}"
+                )
             else:
                 self.source_info_var.set(f"Total frames: {source.total_frames} | Valid frame index: 0 - {max_frame_index}")
         elif source.probe_error:
