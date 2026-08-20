@@ -14,6 +14,7 @@ from urllib.parse import unquote, urlparse
 from urllib.request import url2pathname
 
 from .handbrake_cli import HandBrakeRunner, HandBrakeSettings
+from .models import VideoSource
 from .ui_constants import MIN_FOLDER_IMPORT_SIZE_BYTES, VIDEO_EXTENSIONS
 
 
