@@ -28,8 +28,8 @@ class SourceSection:
         ttk.Button(button_bar, text="Add videos", command=controller._add_videos).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Import list", command=controller._import_sources_from_file).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="Export list", command=controller._export_sources_to_file).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Remove selected", command=controller._remove_selected_source).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="Add current source to batch", command=controller._add_current_source_to_batch).pack(side="left")
+        ttk.Button(button_bar, text="Clear", command=controller._clear_sources).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="Copy selected path", command=controller._copy_selected_source_path).pack(side="left")
 
         controller.source_listbox = tk.Listbox(self.frame, height=8, exportselection=False)
         controller.source_listbox.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
@@ -68,7 +68,8 @@ class RangeSection:
 
         range_bottom_actions_frame = ttk.Frame(self.frame)
         range_bottom_actions_frame.grid(row=1, column=1, sticky="e", padx=(8, 0), pady=6)
-        ttk.Button(range_bottom_actions_frame, text="Add range", command=controller._add_range_to_source).pack(side="left")
+        ttk.Button(range_bottom_actions_frame, text="Add range", command=controller._add_range_to_source).pack(side="left", padx=(0, 8))
+        ttk.Button(range_bottom_actions_frame, text="To audio", command=controller._add_current_source_audio_to_batch).pack(side="left")
 
         range_third_actions_frame = ttk.Frame(self.frame)
         range_third_actions_frame.grid(row=2, column=0, columnspan=3, sticky="w", padx=8, pady=6)

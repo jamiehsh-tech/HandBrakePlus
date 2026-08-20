@@ -46,6 +46,31 @@ class OperationsMixin:
         self._refresh_ranges_view()
         self._save_session()
 
+    def _clear_sources(self) -> None:
+        if not self.sources:
+            return
+        source_count = len(self.sources)
+        self.sources.clear()
+        self.selected_source_index = None
+        self.selected_range_index = None
+        self._refresh_sources_view()
+        self._refresh_ranges_view()
+        self._save_session()
+        self._log(f"Cleared {source_count} source(s).")
+
+    def _copy_selected_source_path(self) -> None:
+        selection = self.source_listbox.curselection()
+        if not selection:
+            return
+        index = selection[0]
+        if index < 0 or index >= len(self.sources):
+            return
+        source_path = str(self.sources[index].path.resolve())
+        self.clipboard_clear()
+        self.clipboard_append(source_path)
+        self.update()
+        self._log(f"Copied source path: {source_path}")
+
     def _on_source_selected(self, _event: object) -> None:
         selection = self.source_listbox.curselection()
         if not selection:
@@ -321,6 +346,26 @@ class OperationsMixin:
         self._refresh_jobs_view()
         self._save_session()
         self._log(f"Added {len(jobs)} job(s) from {source.path.name}.")
+
+    def _add_current_source_audio_to_batch(self) -> None:
+        source = self._current_source()
+        if source is None:
+            messagebox.showwarning("No source", "Please import and select a source first.")
+            return
+        audio_preset = next((preset for preset in self.presets if preset.mode == "audio_copy"), None)
+        if audio_preset is None:
+            messagebox.showwarning("Missing preset", "Audio only preset is not available.")
+            return
+        max_frame_index = source.max_frame_index
+        if max_frame_index is None:
+            messagebox.showwarning("Frame scan pending", "Wait for the source scan to finish before queueing the full file.")
+            return
+        full_source_clip = ClipRange(start_frame=0, end_frame=max_frame_index, index=1)
+        jobs = self._build_jobs_for_source(source, audio_preset, [full_source_clip])
+        self.batch_jobs.extend(jobs)
+        self._refresh_jobs_view()
+        self._save_session()
+        self._log(f"Queued full source as audio: {source.path.name}.")
 
     def _add_all_sources_to_batch(self) -> None:
         preset = self._selected_preset()
